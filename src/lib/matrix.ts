@@ -51,7 +51,9 @@ export class MessageMindMatrix {
       const topic = room.currentState.getStateEvents('m.room.topic', '')?. getContent()?.topic || '';
       // WhatsApp bridge typically adds identifiers to room names/topics
       return name.includes('WhatsApp') || topic.includes('whatsapp') || 
-             room.roomId.includes('whatsapp');
+             room.roomId.includes('whatsapp') ||
+             name.includes('(WA)') || // Common WhatsApp bridge naming
+             room.getAliases().some(alias => alias.includes('whatsapp'));
     });
   }
 
@@ -92,6 +94,11 @@ export class MessageMindMatrix {
   isReady(): boolean {
     return this.isStarted && this.client.isInitialSyncComplete();
   }
+
+  // Get raw client for advanced operations
+  getClient(): MatrixClient {
+    return this.client;
+  }
 }
 
 // Utility functions for message processing
@@ -110,5 +117,9 @@ export const getMessageTimestamp = (event: MatrixEvent): Date => {
 
 export const isWhatsAppMessage = (event: MatrixEvent): boolean => {
   const sender = getMessageSender(event);
-  return sender.includes('whatsapp_') || sender.includes('@whatsappbot');
+  const room = event.event.room_id || '';
+  return sender.includes('whatsapp_') || 
+         sender.includes('@whatsappbot') ||
+         room.includes('whatsapp') ||
+         sender.includes('_wa_');
 };
