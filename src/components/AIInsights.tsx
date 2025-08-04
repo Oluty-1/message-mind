@@ -62,7 +62,20 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
   };
 
   const formatSender = (sender: string) => {
-    return sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
+    // Clean up sender name for display
+    let cleanSender = sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
+    
+    // Handle WhatsApp bridge user IDs
+    if (cleanSender.startsWith('lid-')) {
+      return `Contact (${cleanSender.substring(4, 10)}...)`;
+    }
+    
+    // Handle phone numbers
+    if (/^\d+$/.test(cleanSender)) {
+      return `+${cleanSender}`;
+    }
+    
+    return cleanSender;
   };
 
   const getPriorityColor = (priority: string) => {

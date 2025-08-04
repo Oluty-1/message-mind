@@ -82,7 +82,7 @@ export default function Dashboard({ client }: DashboardProps) {
             content,
             sender: getMessageSender(event),
             timestamp: getMessageTimestamp(event),
-            roomName: room.name || `Room ${room.roomId.substring(1, 8)}...`,
+            roomName: getRoomDisplayName(room),
             roomId: room.roomId,
             isWhatsApp: isWhatsAppMessage(event) || room.name?.includes('(WA)') || false
           });
@@ -96,6 +96,17 @@ export default function Dashboard({ client }: DashboardProps) {
     } catch (error) {
       console.error('Error loading rooms:', error);
       setLoading(false);
+    }
+  const formatTime = (timestamp: Date) => {
+    const now = new Date();
+    const diffInHours = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+    
+    if (diffInHours < 1) {
+      return 'Just now';
+    } else if (diffInHours < 24) {
+      return `${Math.floor(diffInHours)}h ago`;
+    } else {
+      return timestamp.toLocaleDateString();
     }
   };
 
@@ -121,7 +132,7 @@ export default function Dashboard({ client }: DashboardProps) {
         content,
         sender: getMessageSender(event),
         timestamp: getMessageTimestamp(event),
-        roomName: room.name || `Room ${room.roomId.substring(1, 8)}...`,
+                    roomName: getRoomDisplayName(room),
         roomId: room.roomId,
         isWhatsApp: isWhatsAppMessage(event) || room.name?.includes('(WA)') || false
       };
@@ -166,20 +177,59 @@ export default function Dashboard({ client }: DashboardProps) {
   };
 
   const formatSender = (sender: string) => {
-    return sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
+    // Clean up sender name for display
+    let cleanSender = sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
+    
+    // Handle WhatsApp bridge user IDs
+    if (cleanSender.startsWith('lid-')) {
+      // These are WhatsApp LID users - try to get display name from room members
+      const room = rooms.find(r => r.timeline?.some(event => event.getSender() === sender));
+      if (room) {
+        const member = room.getMember(sender);
+        if (member?.name && member.name !== cleanSender) {
+          return member.name;
+        }
+      }
+      return `WhatsApp User (${cleanSender.substring(4, 10)}...)`;
+    }
+    
+    // Handle phone numbers
+    if (/^\d+$/.test(cleanSender)) {
+      // This is a phone number - try to get display name
+      const room = rooms.find(r => r.timeline?.some(event => event.getSender() === sender));
+      if (room) {
+        const member = room.getMember(sender);
+        if (member?.name && member.name !== cleanSender) {
+          return member.name;
+        }
+      }
+      return `+${cleanSender}`;
+    }
+    
+    return cleanSender;
   };
 
-  const formatTime = (timestamp: Date) => {
-    const now = new Date();
-    const diffInHours = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+  const getRoomDisplayName = (room: Room): string => {
+    const name = room.name || '';
     
-    if (diffInHours < 1) {
-      return 'Just now';
-    } else if (diffInHours < 24) {
-      return `${Math.floor(diffInHours)}h ago`;
-    } else {
-      return timestamp.toLocaleDateString();
+    // If it's a WhatsApp room with a proper name, use it
+    if (name && !name.startsWith('!') && !name.includes('Room')) {
+      return name;
     }
+    
+    // For unnamed rooms, try to create a name from participants
+    const members = room.getJoinedMembers();
+    const memberNames = members
+      .filter(member => member.userId !== client.getUserId())
+      .map(member => member.name || formatSender(member.userId))
+      .filter(name => name && name !== 'undefined')
+      .slice(0, 2);
+    
+    if (memberNames.length > 0) {
+      return memberNames.join(', ');
+    }
+    
+    return `Room ${room.roomId.substring(1, 8)}...`;
   };
 
   if (loading) {
@@ -330,13 +380,9 @@ export default function Dashboard({ client }: DashboardProps) {
               </div>
               <div className="max-h-96 overflow-y-auto">
                 {rooms.map(room => {
-                  const roomName = room.name || '';
-                  const roomId = room.roomId || '';
-                  const isWhatsAppRoom = roomName.toLowerCase().includes('whatsapp') || 
-                                       roomId.toLowerCase().includes('whatsapp') ||
-                                       roomName.includes('(WA)') || 
-                                       roomName.includes('WA ') ||
-                                       roomName.includes('WhatsApp');
+                  const isWhatsAppRoom = client.getWhatsAppRooms().includes(room) || 
+                                       room.name?.includes('(WA)') || 
+                                       room.name?.includes('WhatsApp');
                   const roomMessages = messages.filter(msg => msg.roomId === room.roomId);
                   const lastMessage = roomMessages[0];
                   
@@ -352,7 +398,7 @@ export default function Dashboard({ client }: DashboardProps) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2 mb-1">
                             <p className="font-medium text-gray-900 truncate text-sm">
-                              {room.name || 'Unnamed Room'}
+                              {getRoomDisplayName(room)}
                             </p>
                             {isWhatsAppRoom && (
                               <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex-shrink-0">
