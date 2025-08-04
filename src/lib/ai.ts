@@ -32,16 +32,14 @@ export class MessageMindAI {
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
-    this.hf = new HfInference(this.apiKey);
-  private getPriorityWeight(priority: string): number {
-    switch (priority) {
-      case 'high': return 3;
-      case 'medium': return 2;
-      case 'low': return 1;
-      default: return 0;
+    
+    if (this.apiKey) {
+      this.hf = new HfInference(this.apiKey);
+      console.log('🤖 MessageMind AI: Using Hugging Face API for advanced processing');
+    } else {
+      console.log('🧠 MessageMind AI: Using local processing (no API key found)');
     }
   }
-}
 
   // Summarize conversation for a specific day (Local processing fallback)
   async generateDailySummary(messages: ProcessedMessage[], date: string): Promise<ConversationSummary[]> {
@@ -86,12 +84,6 @@ export class MessageMindAI {
   // Analyze intent of individual messages
   async analyzeMessageIntent(message: ProcessedMessage): Promise<MessageIntent> {
     try {
-      const result = await this.hf.textClassification({
-        model: 'microsoft/DialoGPT-medium',
-        inputs: message.content
-      });
-
-      // Simplified intent detection based on content analysis
       const intent = this.detectIntent(message.content);
       return {
         intent: intent.type,
@@ -121,6 +113,10 @@ export class MessageMindAI {
   // Generate embeddings for semantic search
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     try {
+      if (!this.apiKey) {
+        return []; // No embeddings without API key
+      }
+      
       const embeddings = await Promise.all(
         texts.map(text => 
           this.hf.featureExtraction({
@@ -143,7 +139,9 @@ export class MessageMindAI {
 
     for (const group of messageGroups) {
       try {
-        const summary = await this.summarizeText(this.formatMessagesForAI(group));
+        const summary = this.apiKey 
+          ? await this.summarizeText(this.formatMessagesForAI(group))
+          : this.generateLocalSummary(group);
         const topics = await this.extractTopics(this.formatMessagesForAI(group));
         
         knowledge.push({
@@ -288,78 +286,6 @@ export class MessageMindAI {
     });
   }
 
-  private async extractTopics(text: string): Promise<string[]> {
-    // Simple keyword extraction based on frequency and importance
-    const words = text.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 3);
-    
-    const wordCount: Record<string, number> = {};
-    words.forEach(word => {
-      wordCount[word] = (wordCount[word] || 0) + 1;
-    });
-
-    return Object.entries(wordCount)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5)
-      .map(([word]) => word);
-  }
-
-  private detectIntent(content: string): { type: string; confidence: number; category: MessageIntent['category'] } {
-    const text = content.toLowerCase();
-    
-    // Question patterns
-    if (text.includes('?') || text.startsWith('what') || text.startsWith('how') || text.startsWith('when')) {
-      return { type: 'question', confidence: 0.8, category: 'question' };
-    }
-    
-    // Urgent patterns
-    if (text.includes('urgent') || text.includes('asap') || text.includes('emergency')) {
-      return { type: 'urgent_request', confidence: 0.9, category: 'urgent' };
-    }
-    
-    // Request patterns
-    if (text.includes('please') || text.includes('can you') || text.includes('could you')) {
-      return { type: 'request', confidence: 0.7, category: 'request' };
-    }
-    
-    // Social patterns
-    if (text.includes('hello') || text.includes('hi') || text.includes('thanks') || text.includes('bye')) {
-      return { type: 'social', confidence: 0.6, category: 'social' };
-    }
-    
-    return { type: 'information', confidence: 0.5, category: 'information' };
-  }
-
-  private calculatePriority(messages: ProcessedMessage[], sentiment: string): 'high' | 'medium' | 'low' {
-    const urgentKeywords = ['urgent', 'emergency', 'asap', 'important'];
-    const hasUrgentContent = messages.some(msg => 
-      urgentKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
-    );
-    
-    if (hasUrgentContent || sentiment === 'negative') return 'high';
-    if (messages.length > 10 || sentiment === 'positive') return 'medium';
-    return 'low';
-  }
-
-  private calculateMessagePriority(message: ProcessedMessage): number {
-    let priority = 0;
-    const content = message.content.toLowerCase();
-    
-    // Time-based priority (newer = higher)
-    const hoursSinceMessage = (Date.now() - message.timestamp.getTime()) / (1000 * 60 * 60);
-    priority += Math.max(0, 24 - hoursSinceMessage) / 24 * 10;
-    
-    // Content-based priority
-    if (content.includes('?')) priority += 5; // Questions
-    if (content.includes('urgent') || content.includes('important')) priority += 15;
-    if (content.includes('please') || content.includes('help')) priority += 8;
-    if (content.length > 100) priority += 3; // Longer messages
-    
-    return priority;
-  }
-
   // Enhanced local summarization with pattern recognition
   private generateLocalSummary(messages: ProcessedMessage[]): string {
     if (messages.length < 2) return "Brief exchange.";
@@ -489,3 +415,72 @@ export class MessageMindAI {
       .slice(0, 5)
       .map(([word]) => word);
   }
+
+  private async extractTopics(text: string): Promise<string[]> {
+    // Use local topic extraction for now
+    return this.extractTopicsLocal(text);
+  }
+
+  private detectIntent(content: string): { type: string; confidence: number; category: MessageIntent['category'] } {
+    const text = content.toLowerCase();
+    
+    // Question patterns
+    if (text.includes('?') || text.startsWith('what') || text.startsWith('how') || text.startsWith('when')) {
+      return { type: 'question', confidence: 0.8, category: 'question' };
+    }
+    
+    // Urgent patterns
+    if (text.includes('urgent') || text.includes('asap') || text.includes('emergency')) {
+      return { type: 'urgent_request', confidence: 0.9, category: 'urgent' };
+    }
+    
+    // Request patterns
+    if (text.includes('please') || text.includes('can you') || text.includes('could you')) {
+      return { type: 'request', confidence: 0.7, category: 'request' };
+    }
+    
+    // Social patterns
+    if (text.includes('hello') || text.includes('hi') || text.includes('thanks') || text.includes('bye')) {
+      return { type: 'social', confidence: 0.6, category: 'social' };
+    }
+    
+    return { type: 'information', confidence: 0.5, category: 'information' };
+  }
+
+  private calculatePriority(messages: ProcessedMessage[], sentiment: string): 'high' | 'medium' | 'low' {
+    const urgentKeywords = ['urgent', 'emergency', 'asap', 'important'];
+    const hasUrgentContent = messages.some(msg => 
+      urgentKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
+    );
+    
+    if (hasUrgentContent || sentiment === 'negative') return 'high';
+    if (messages.length > 10 || sentiment === 'positive') return 'medium';
+    return 'low';
+  }
+
+  private calculateMessagePriority(message: ProcessedMessage): number {
+    let priority = 0;
+    const content = message.content.toLowerCase();
+    
+    // Time-based priority (newer = higher)
+    const hoursSinceMessage = (Date.now() - message.timestamp.getTime()) / (1000 * 60 * 60);
+    priority += Math.max(0, 24 - hoursSinceMessage) / 24 * 10;
+    
+    // Content-based priority
+    if (content.includes('?')) priority += 5; // Questions
+    if (content.includes('urgent') || content.includes('important')) priority += 15;
+    if (content.includes('please') || content.includes('help')) priority += 8;
+    if (content.length > 100) priority += 3; // Longer messages
+    
+    return priority;
+  }
+
+  private getPriorityWeight(priority: string): number {
+    switch (priority) {
+      case 'high': return 3;
+      case 'medium': return 2;
+      case 'low': return 1;
+      default: return 0;
+    }
+  }
+}
