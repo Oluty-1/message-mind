@@ -33,9 +33,17 @@ export class MessageMindAI {
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
     this.hf = new HfInference(this.apiKey);
+  private getPriorityWeight(priority: string): number {
+    switch (priority) {
+      case 'high': return 3;
+      case 'medium': return 2;
+      case 'low': return 1;
+      default: return 0;
+    }
   }
+}
 
-  // Summarize conversation for a specific day
+  // Summarize conversation for a specific day (Local processing fallback)
   async generateDailySummary(messages: ProcessedMessage[], date: string): Promise<ConversationSummary[]> {
     const messagesByRoom = this.groupMessagesByRoom(messages, date);
     const summaries: ConversationSummary[] = [];
@@ -45,8 +53,16 @@ export class MessageMindAI {
 
       try {
         const conversationText = this.formatMessagesForAI(roomMessages);
-        const summary = await this.summarizeText(conversationText);
-        const sentiment = await this.analyzeSentiment(conversationText);
+        
+        // Use local processing if no API key
+        const summary = this.apiKey 
+          ? await this.summarizeText(conversationText)
+          : this.generateLocalSummary(roomMessages);
+          
+        const sentiment = this.apiKey
+          ? await this.analyzeSentiment(conversationText)
+          : this.analyzeLocalSentiment(conversationText);
+          
         const topics = await this.extractTopics(conversationText);
         
         summaries.push({
@@ -319,12 +335,51 @@ export class MessageMindAI {
     return priority;
   }
 
-  private getPriorityWeight(priority: string): number {
-    switch (priority) {
-      case 'high': return 3;
-      case 'medium': return 2;
-      case 'low': return 1;
-      default: return 0;
-    }
+  // Local summarization fallback
+  private generateLocalSummary(messages: ProcessedMessage[]): string {
+    if (messages.length < 3) return "Brief conversation.";
+    
+    const senders = [...new Set(messages.map(m => m.sender))];
+    const messageCount = messages.length;
+    const topics = this.extractTopicsLocal(messages.map(m => m.content).join(' '));
+    
+    return `Conversation between ${senders.length} participants with ${messageCount} messages. Main topics: ${topics.slice(0, 3).join(', ')}.`;
   }
-}
+
+  // Local sentiment analysis fallback
+  private analyzeLocalSentiment(text: string): 'positive' | 'neutral' | 'negative' {
+    const positiveWords = ['good', 'great', 'awesome', 'love', 'happy', 'thanks', 'excellent', 'amazing'];
+    const negativeWords = ['bad', 'awful', 'hate', 'angry', 'sad', 'terrible', 'horrible', 'annoying'];
+    
+    const words = text.toLowerCase().split(/\s+/);
+    let positiveCount = 0;
+    let negativeCount = 0;
+    
+    words.forEach(word => {
+      if (positiveWords.includes(word)) positiveCount++;
+      if (negativeWords.includes(word)) negativeCount++;
+    });
+    
+    if (positiveCount > negativeCount) return 'positive';
+    if (negativeCount > positiveCount) return 'negative';
+    return 'neutral';
+  }
+
+  private extractTopicsLocal(text: string): string[] {
+    const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'do', 'did', 'does', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these', 'those'];
+    
+    const words = text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 3 && !stopWords.includes(word));
+    
+    const wordCount: Record<string, number> = {};
+    words.forEach(word => {
+      wordCount[word] = (wordCount[word] || 0) + 1;
+    });
+
+    return Object.entries(wordCount)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 5)
+      .map(([word]) => word);
+  }
