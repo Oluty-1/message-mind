@@ -194,15 +194,47 @@ export default function Dashboard({ client }: DashboardProps) {
     
     // Handle WhatsApp bridge user IDs
     if (cleanSender.startsWith('lid-')) {
-      return `Contact (${cleanSender.substring(4, 10)}...)`;
+      // Try to get the actual name from room members first
+      const room = rooms.find(r => r.timeline?.some(event => event.getSender() === sender));
+      if (room) {
+        const member = room.getMember(sender);
+        if (member?.name && member.name !== cleanSender && !member.name.startsWith('lid-')) {
+          return member.name;
+        }
+      }
+      return `Contact ${cleanSender.substring(4, 10)}`;
     }
     
-    // Handle phone numbers
+    // Handle phone numbers - try to get actual display name first
     if (/^\d+$/.test(cleanSender)) {
-      return `+${cleanSender}`;
+      // Try to get display name from room member
+      const room = rooms.find(r => r.timeline?.some(event => event.getSender() === sender));
+      if (room) {
+        const member = room.getMember(sender);
+        if (member?.name && member.name !== cleanSender && !member.name.match(/^\d+$/)) {
+          return member.name;
+        }
+        
+        // Check if the room name gives us a clue about the person's name
+        if (room.name && !room.name.includes('(') && !room.name.includes('Room')) {
+          // Extract name from room name like "John Doe (WA)" -> "John Doe"
+          const nameMatch = room.name.match(/^([^(]+)/);
+          if (nameMatch) {
+            return nameMatch[1].trim();
+          }
+        }
+      }
+      
+      // If no display name found, show generic contact
+      return `Contact`;
     }
     
-    return cleanSender;
+    // Handle system users
+    if (cleanSender.includes('whatsappbot')) {
+      return 'WhatsApp Bot';
+    }
+    
+    return cleanSender.charAt(0).toUpperCase() + cleanSender.slice(1);
   };
 
   const formatTime = (timestamp: Date) => {

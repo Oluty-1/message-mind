@@ -69,16 +69,20 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
   };
 
   const formatSender = (sender: string) => {
-    // Clean up sender name for display
+    // Clean up sender name for display - remove all the ugly Matrix stuff
     let cleanSender = sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
     
     // Handle WhatsApp bridge user IDs
     if (cleanSender.startsWith('lid-')) {
-      return `Contact (${cleanSender.substring(4, 10)}...)`;
+      return `Contact ${cleanSender.substring(4, 10)}`;
     }
     
     // Handle phone numbers - make them more readable
     if (/^\d+$/.test(cleanSender)) {
+      // Try to format Nigerian numbers nicely
+      if (cleanSender.startsWith('234')) {
+        return `+${cleanSender.substring(0, 3)} ${cleanSender.substring(3, 6)} ${cleanSender.substring(6)}`;
+      }
       return `+${cleanSender}`;
     }
     
@@ -200,32 +204,41 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           <div className="p-6">
             <div className="space-y-3">
               {prioritizedMessages.slice(0, 10).map(message => (
-                <div key={message.id} className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors">
+                <div key={message.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <p className="font-medium text-gray-900 text-sm">
-                          {formatSender(message.sender)}
-                        </p>
-                        <p className="text-xs text-gray-500">{message.roomName}</p>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                            <span className="text-indigo-600 font-medium text-sm">
+                              {formatSender(message.sender).charAt(0)}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 text-sm">
+                              {formatSender(message.sender)}
+                            </p>
+                            <p className="text-xs text-gray-500">{message.roomName}</p>
+                          </div>
+                        </div>
                         {message.isWhatsApp && (
                           <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                             WhatsApp
                           </span>
                         )}
                       </div>
-                      <p className="text-gray-700 text-sm">
-                        {message.content.length > 100 
-                          ? message.content.substring(0, 100) + '...'
+                      <p className="text-gray-700 text-sm mb-2 leading-relaxed">
+                        {message.content.length > 150 
+                          ? message.content.substring(0, 150) + '...'
                           : message.content
                         }
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-400">
                         {message.timestamp.toLocaleString()}
                       </p>
                     </div>
                     <div className="ml-3 flex-shrink-0">
-                      <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                      <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
                     </div>
                   </div>
                 </div>
@@ -247,21 +260,25 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           <div className="p-6">
             <div className="grid gap-4">
               {knowledgeBase.slice(0, 5).map((entry, index) => (
-                <div key={entry.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-gray-900">{entry.roomName}</h4>
-                    <span className="text-xs text-gray-500">
-                      {entry.messageCount} messages
-                    </span>
+                <div key={entry.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <span className="text-purple-600 font-medium text-xs">KB</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900 text-sm">{entry.roomName}</h4>
+                        <span className="text-xs text-gray-500">{entry.messageCount} messages</span>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-gray-700 text-sm mb-2">{entry.summary}</p>
-                  <div className="flex items-center space-x-4 text-xs text-gray-500">
-                    <span>
-                      Participants: {entry.participants.map(formatSender).join(', ')}
-                    </span>
-                    {entry.topics.length > 0 && (
-                      <span>Topics: {entry.topics.filter(topic => !['messagemind', 'duckdns', 'whatsapp'].includes(topic.toLowerCase())).slice(0, 3).join(', ')}</span>
-                    )}
+                  
+                  <div className="bg-purple-50 rounded-lg p-3 mb-3">
+                    <p className="text-gray-800 text-sm leading-relaxed">{entry.summary}</p>
+                  </div>
+                  
+                  <div className="text-xs text-gray-500">
+                    Key insights from conversation • {new Date(entry.timestamp).toLocaleDateString()}
                   </div>
                 </div>
               ))}
