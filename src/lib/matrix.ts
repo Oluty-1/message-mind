@@ -48,12 +48,16 @@ export class MessageMindMatrix {
   getWhatsAppRooms(): Room[] {
     return this.client.getRooms().filter(room => {
       const name = room.name || '';
-      const topic = room.currentState.getStateEvents('m.room.topic', '')?. getContent()?.topic || '';
+      const topic = room.currentState.getStateEvents('m.room.topic', '')?.getContent()?.topic || '';
+      const roomId = room.roomId || '';
+      
       // WhatsApp bridge typically adds identifiers to room names/topics
-      return name.includes('WhatsApp') || topic.includes('whatsapp') || 
-             room.roomId.includes('whatsapp') ||
+      return name.toLowerCase().includes('whatsapp') || 
+             topic.toLowerCase().includes('whatsapp') || 
+             roomId.toLowerCase().includes('whatsapp') ||
              name.includes('(WA)') || // Common WhatsApp bridge naming
-             room.getAliases().some(alias => alias.includes('whatsapp'));
+             name.includes('WA ') || // Another common pattern
+             name.includes('WhatsApp');
     });
   }
 

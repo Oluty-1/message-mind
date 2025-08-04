@@ -1,4 +1,3 @@
-// src/components/Dashboard.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -46,33 +45,47 @@ export default function Dashboard({ client }: DashboardProps) {
 
   const loadRooms = () => {
     try {
-      const allRooms = client.getRooms();
-      const whatsappRooms = client.getWhatsAppRooms();
+      const allRooms = client.getRooms().filter(room => {
+        // Filter out empty rooms and system rooms
+        const timeline = room.timeline || [];
+        const hasMessages = timeline.some(event => 
+          event.getType() === 'm.room.message' && 
+          extractMessageContent(event).trim().length > 1
+        );
+        return hasMessages && !room.roomId.includes('!system');
+      });
       
-      console.log('All rooms:', allRooms.length);
-      console.log('WhatsApp rooms:', whatsappRooms.length);
-      
+      console.log('Filtered rooms:', allRooms.length);
       setRooms(allRooms);
       
-      // Load recent messages from all rooms
+      // Load recent messages from all rooms - DEDUPLICATE
       const allMessages: ProcessedMessage[] = [];
+      const seenMessageIds = new Set<string>();
       
       allRooms.forEach(room => {
         const recentEvents = client.getRecentMessages(room.roomId, 30);
         
         recentEvents.forEach(event => {
+          const messageId = event.getId();
           const content = extractMessageContent(event);
-          if (content.trim() && !content.startsWith('!') && content.length > 1) {
-            allMessages.push({
-              id: event.getId() || '',
-              content,
-              sender: getMessageSender(event),
-              timestamp: getMessageTimestamp(event),
-              roomName: room.name || room.roomId.substring(1, 20) + '...',
-              roomId: room.roomId,
-              isWhatsApp: isWhatsAppMessage(event)
-            });
+          
+          // Skip duplicates and system messages
+          if (!messageId || seenMessageIds.has(messageId) || 
+              !content.trim() || content.startsWith('!') || content.length <= 1) {
+            return;
           }
+          
+          seenMessageIds.add(messageId);
+          
+          allMessages.push({
+            id: messageId,
+            content,
+            sender: getMessageSender(event),
+            timestamp: getMessageTimestamp(event),
+            roomName: room.name || `Room ${room.roomId.substring(1, 8)}...`,
+            roomId: room.roomId,
+            isWhatsApp: isWhatsAppMessage(event) || room.name?.includes('(WA)') || false
+          });
         });
       });
       
@@ -86,30 +99,38 @@ export default function Dashboard({ client }: DashboardProps) {
     }
   };
 
-  // Listen for new messages
+  // Listen for new messages - DEDUPLICATE
   useEffect(() => {
     const handleNewMessage = (event: MatrixEvent) => {
       const content = extractMessageContent(event);
-      if (!content.trim() || content.startsWith('!') || content.length <= 1) return;
+      const messageId = event.getId();
+      
+      if (!messageId || !content.trim() || content.startsWith('!') || content.length <= 1) {
+        return;
+      }
+
+      // Check if we already have this message
+      const exists = messages.some(msg => msg.id === messageId);
+      if (exists) return;
 
       const room = client.getRooms().find(r => r.roomId === event.getRoomId());
       if (!room) return;
 
       const newMessage: ProcessedMessage = {
-        id: event.getId() || '',
+        id: messageId,
         content,
         sender: getMessageSender(event),
         timestamp: getMessageTimestamp(event),
-        roomName: room.name || room.roomId.substring(1, 20) + '...',
+        roomName: room.name || `Room ${room.roomId.substring(1, 8)}...`,
         roomId: room.roomId,
-        isWhatsApp: isWhatsAppMessage(event)
+        isWhatsApp: isWhatsAppMessage(event) || room.name?.includes('(WA)') || false
       };
 
       setMessages(prev => [newMessage, ...prev]);
     };
 
     client.onNewMessage(handleNewMessage);
-  }, [client]);
+  }, [client, messages]);
 
   // Filter messages
   const filteredMessages = messages.filter(msg => {
@@ -123,6 +144,15 @@ export default function Dashboard({ client }: DashboardProps) {
     return matchesSearch && matchesFilter;
   });
 
+  // Get messages for selected room or all messages
+  const getDisplayMessages = () => {
+    if (selectedRoom) {
+      return filteredMessages.filter(msg => msg.roomId === selectedRoom);
+    }
+    return filteredMessages;
+  };
+
+  const displayMessages = getDisplayMessages();
   const whatsappMessages = messages.filter(msg => msg.isWhatsApp);
   const todayMessages = messages.filter(msg => {
     const today = new Date();
@@ -136,7 +166,6 @@ export default function Dashboard({ client }: DashboardProps) {
   };
 
   const formatSender = (sender: string) => {
-    // Clean up sender name for display
     return sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
   };
 
@@ -172,6 +201,14 @@ export default function Dashboard({ client }: DashboardProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
+              <Bot className="h-8 w-8 text-indigo-600" />
+              <h1 className="text-2xl font-bold text-gray-900">MessageMind</h1>
+              <span className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full font-medium">
+                ● Connected
+              </span>
+            </div>
+            
+            <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setActiveTab('messages')}
@@ -195,14 +232,7 @@ export default function Dashboard({ client }: DashboardProps) {
                   <span>AI Insights</span>
                 </button>
               </div>
-              <Bot className="h-8 w-8 text-indigo-600" />
-              <h1 className="text-2xl font-bold text-gray-900">MessageMind</h1>
-              <span className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full font-medium">
-                ● Connected
-              </span>
-            </div>
-            
-            <div className="flex items-center space-x-4">
+              
               <div className="relative">
                 <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
@@ -288,11 +318,28 @@ export default function Dashboard({ client }: DashboardProps) {
             {/* Rooms List */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100">
               <div className="p-6 border-b border-gray-100">
-                <h2 className="text-lg font-semibold text-gray-900">Rooms ({rooms.length})</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Conversations ({rooms.length})</h2>
+                {selectedRoom && (
+                  <button
+                    onClick={() => setSelectedRoom(null)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 mt-2"
+                  >
+                    ← Back to all messages
+                  </button>
+                )}
               </div>
               <div className="max-h-96 overflow-y-auto">
                 {rooms.map(room => {
-                  const isWhatsAppRoom = client.getWhatsAppRooms().includes(room);
+                  const roomName = room.name || '';
+                  const roomId = room.roomId || '';
+                  const isWhatsAppRoom = roomName.toLowerCase().includes('whatsapp') || 
+                                       roomId.toLowerCase().includes('whatsapp') ||
+                                       roomName.includes('(WA)') || 
+                                       roomName.includes('WA ') ||
+                                       roomName.includes('WhatsApp');
+                  const roomMessages = messages.filter(msg => msg.roomId === room.roomId);
+                  const lastMessage = roomMessages[0];
+                  
                   return (
                     <div
                       key={room.roomId}
@@ -303,22 +350,44 @@ export default function Dashboard({ client }: DashboardProps) {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 truncate text-sm">
-                            {room.name || 'Unnamed Room'}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {room.roomId.substring(0, 30)}...
-                          </p>
+                          <div className="flex items-center space-x-2 mb-1">
+                            <p className="font-medium text-gray-900 truncate text-sm">
+                              {room.name || 'Unnamed Room'}
+                            </p>
+                            {isWhatsAppRoom && (
+                              <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex-shrink-0">
+                                WA
+                              </span>
+                            )}
+                          </div>
+                          
+                          {lastMessage && (
+                            <div className="text-xs text-gray-500">
+                              <p className="truncate">
+                                {formatSender(lastMessage.sender)}: {lastMessage.content.substring(0, 40)}...
+                              </p>
+                              <p className="text-xs text-gray-400 mt-1">
+                                {formatTime(lastMessage.timestamp)}
+                              </p>
+                            </div>
+                          )}
+                          
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-xs text-gray-400">
+                              {roomMessages.length} messages
+                            </span>
+                          </div>
                         </div>
-                        {isWhatsAppRoom && (
-                          <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex-shrink-0">
-                            WA
-                          </span>
-                        )}
                       </div>
                     </div>
                   );
                 })}
+                
+                {rooms.length === 0 && (
+                  <div className="p-8 text-center text-gray-500">
+                    <p className="text-sm">No conversations found</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -327,17 +396,20 @@ export default function Dashboard({ client }: DashboardProps) {
               <div className="p-6 border-b border-gray-100">
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg font-semibold text-gray-900">
-                    Recent Messages 
-                    {searchTerm && ` (${filteredMessages.length} results)`}
+                    {selectedRoom 
+                      ? `Messages in ${rooms.find(r => r.roomId === selectedRoom)?.name || 'Selected Room'}`
+                      : `Recent Messages`
+                    }
+                    {searchTerm && ` (${displayMessages.length} results)`}
                     {showWhatsAppOnly && ' - WhatsApp Only'}
                   </h2>
                   <div className="text-sm text-gray-500">
-                    {filteredMessages.length} of {messages.length} messages
+                    {displayMessages.length} messages
                   </div>
                 </div>
               </div>
               <div className="max-h-96 overflow-y-auto">
-                {filteredMessages.slice(0, 100).map(message => (
+                {displayMessages.slice(0, 100).map(message => (
                   <div key={message.id} className="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
@@ -368,16 +440,23 @@ export default function Dashboard({ client }: DashboardProps) {
                   </div>
                 ))}
                 
-                {filteredMessages.length === 0 && (
+                {displayMessages.length === 0 && (
                   <div className="p-12 text-center text-gray-500">
                     <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                     <p className="text-lg font-medium mb-2">
-                      {searchTerm ? 'No messages found' : 'No messages available'}
+                      {selectedRoom 
+                        ? 'No messages in this room'
+                        : searchTerm 
+                          ? 'No messages found' 
+                          : 'No messages available'
+                      }
                     </p>
                     <p className="text-sm">
-                      {searchTerm 
-                        ? 'Try adjusting your search terms or filters' 
-                        : 'Messages will appear here as they sync from your Matrix server'
+                      {selectedRoom
+                        ? 'This room appears to be empty or messages haven\'t synced yet'
+                        : searchTerm 
+                          ? 'Try adjusting your search terms or filters' 
+                          : 'Messages will appear here as they sync from your Matrix server'
                       }
                     </p>
                   </div>
