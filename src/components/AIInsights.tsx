@@ -77,12 +77,17 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
       return `Contact (${cleanSender.substring(4, 10)}...)`;
     }
     
-    // Handle phone numbers
+    // Handle phone numbers - make them more readable
     if (/^\d+$/.test(cleanSender)) {
       return `+${cleanSender}`;
     }
     
-    return cleanSender;
+    // Handle system users
+    if (cleanSender.includes('whatsappbot')) {
+      return 'WhatsApp Bot';
+    }
+    
+    return cleanSender.charAt(0).toUpperCase() + cleanSender.slice(1);
   };
 
   const getPriorityColor = (priority: string) => {
