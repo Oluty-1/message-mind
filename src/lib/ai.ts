@@ -1,4 +1,3 @@
-// src/lib/ai.ts
 import { HfInference } from '@huggingface/inference';
 
 interface ProcessedMessage {
@@ -220,9 +219,10 @@ export class MessageMindAI {
     return messages
       .slice(-20) // Last 20 messages to avoid token limits
       .map(msg => {
-        // Clean up sender names for AI processing
-        const cleanSender = this.cleanSenderName(msg.sender);
-        return `${cleanSender}: ${msg.content}`;
+        // Use the room name as the speaker name for AI processing
+        // Since each WhatsApp room typically represents one contact
+        const roomBasedName = msg.roomName.replace(/\s*\(WA\)\s*$/, '').trim();
+        return `${roomBasedName}: ${msg.content}`;
       })
       .join('\n');
   }
