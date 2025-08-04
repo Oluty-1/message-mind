@@ -26,6 +26,13 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
   const [knowledgeBase, setKnowledgeBase] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+  const [apiStatus, setApiStatus] = useState<'local' | 'api' | 'checking'>('checking');
+
+  // Check API status on component mount
+  useEffect(() => {
+    const hasApiKey = process.env.NEXT_PUBLIC_HF_API_KEY;
+    setApiStatus(hasApiKey ? 'api' : 'local');
+  }, []);
 
   // Process messages with AI
   const processWithAI = async () => {
@@ -103,9 +110,21 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           <div className="flex items-center space-x-3">
             <Brain className="h-8 w-8" />
             <div>
-              <h2 className="text-2xl font-bold">AI Insights</h2>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-2xl font-bold">AI Insights</h2>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  apiStatus === 'api' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {apiStatus === 'api' ? '🌐 Cloud AI' : '🧠 Local AI'}
+                </span>
+              </div>
               <p className="text-purple-100">
-                Analyze your conversations with AI-powered insights
+                {apiStatus === 'api' 
+                  ? 'Powered by Hugging Face models for advanced analysis'
+                  : 'Using local processing for privacy and speed'
+                }
               </p>
             </div>
           </div>
@@ -150,12 +169,12 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                   </span>
                 </div>
                 
-                <p className="text-gray-700 text-sm mb-3">{summary.summary}</p>
+                <p className="text-gray-700 text-sm mb-3 leading-relaxed">{summary.summary}</p>
                 
                 <div className="flex items-center space-x-4 text-xs text-gray-500">
                   <span>Participants: {summary.participants.map(formatSender).join(', ')}</span>
                   {summary.keyTopics.length > 0 && (
-                    <span>Topics: {summary.keyTopics.slice(0, 3).join(', ')}</span>
+                    <span>Topics: {summary.keyTopics.filter(topic => !['messagemind', 'duckdns', 'whatsapp'].includes(topic.toLowerCase())).slice(0, 3).join(', ')}</span>
                   )}
                 </div>
               </div>
@@ -236,7 +255,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                       Participants: {entry.participants.map(formatSender).join(', ')}
                     </span>
                     {entry.topics.length > 0 && (
-                      <span>Topics: {entry.topics.slice(0, 3).join(', ')}</span>
+                      <span>Topics: {entry.topics.filter(topic => !['messagemind', 'duckdns', 'whatsapp'].includes(topic.toLowerCase())).slice(0, 3).join(', ')}</span>
                     )}
                   </div>
                 </div>

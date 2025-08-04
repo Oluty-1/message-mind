@@ -1,4 +1,3 @@
-// src/lib/ai.ts
 import { HfInference } from '@huggingface/inference';
 
 interface ProcessedMessage {
@@ -34,8 +33,6 @@ export class MessageMindAI {
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
     this.hf = new HfInference(this.apiKey);
-  }
-
   private getPriorityWeight(priority: string): number {
     switch (priority) {
       case 'high': return 3;
@@ -44,6 +41,7 @@ export class MessageMindAI {
       default: return 0;
     }
   }
+}
 
   // Summarize conversation for a specific day (Local processing fallback)
   async generateDailySummary(messages: ProcessedMessage[], date: string): Promise<ConversationSummary[]> {
@@ -56,7 +54,7 @@ export class MessageMindAI {
       try {
         const conversationText = this.formatMessagesForAI(roomMessages);
         
-        // Use local processing if no API key
+        // Use local processing if no API key or API fails
         const summary = this.apiKey 
           ? await this.summarizeText(conversationText)
           : this.generateLocalSummary(roomMessages);
@@ -227,6 +225,10 @@ export class MessageMindAI {
   }
 
   private async summarizeText(text: string): Promise<string> {
+    if (!this.apiKey) {
+      return this.generateLocalSummary(this.parseTextToMessages(text));
+    }
+
     try {
       if (text.length < 50) {
         return "Conversation too short to summarize.";
@@ -243,12 +245,16 @@ export class MessageMindAI {
 
       return result.summary_text || "Could not generate summary.";
     } catch (error) {
-      console.error('Summarization failed:', error);
-      return "Summary unavailable.";
+      console.error('Hugging Face API summarization failed, falling back to local:', error);
+      return this.generateLocalSummary(this.parseTextToMessages(text));
     }
   }
 
   private async analyzeSentiment(text: string): Promise<'positive' | 'neutral' | 'negative'> {
+    if (!this.apiKey) {
+      return this.analyzeLocalSentiment(text);
+    }
+
     try {
       const result = await this.hf.textClassification({
         model: 'cardiffnlp/twitter-roberta-base-sentiment-latest',
@@ -260,9 +266,26 @@ export class MessageMindAI {
       if (sentiment?.includes('negative')) return 'negative';
       return 'neutral';
     } catch (error) {
-      console.error('Sentiment analysis failed:', error);
-      return 'neutral';
+      console.error('Hugging Face API sentiment analysis failed, falling back to local:', error);
+      return this.analyzeLocalSentiment(text);
     }
+  }
+
+  // Helper to convert text back to messages for local processing
+  private parseTextToMessages(text: string): ProcessedMessage[] {
+    const lines = text.split('\n').filter(line => line.includes(':'));
+    return lines.map((line, index) => {
+      const [sender, ...contentParts] = line.split(':');
+      return {
+        id: `temp-${index}`,
+        content: contentParts.join(':').trim(),
+        sender: sender.trim(),
+        timestamp: new Date(),
+        roomName: 'temp',
+        roomId: 'temp',
+        isWhatsApp: false
+      };
+    });
   }
 
   private async extractTopics(text: string): Promise<string[]> {
@@ -466,4 +489,3 @@ export class MessageMindAI {
       .slice(0, 5)
       .map(([word]) => word);
   }
-}
