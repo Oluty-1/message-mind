@@ -4,7 +4,8 @@
 import { useState, useEffect } from 'react';
 import { MessageMindMatrix, extractMessageContent, getMessageSender, getMessageTimestamp, isWhatsAppMessage } from '@/lib/matrix';
 import { MatrixEvent, Room } from 'matrix-js-sdk';
-import { MessageSquare, Users, Bot, Zap, Calendar, Search, LogOut, Smartphone, Filter } from 'lucide-react';
+import { MessageSquare, Users, Bot, Zap, Calendar, Search, LogOut, Smartphone, Filter, Brain } from 'lucide-react';
+import AIInsights from './AIInsights';
 
 interface DashboardProps {
   client: MessageMindMatrix;
@@ -27,6 +28,7 @@ export default function Dashboard({ client }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showWhatsAppOnly, setShowWhatsAppOnly] = useState(false);
+  const [activeTab, setActiveTab] = useState<'messages' | 'ai'>('messages');
 
   useEffect(() => {
     if (!client.isReady()) {
@@ -170,6 +172,29 @@ export default function Dashboard({ client }: DashboardProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setActiveTab('messages')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    activeTab === 'messages'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Messages
+                </button>
+                <button
+                  onClick={() => setActiveTab('ai')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${
+                    activeTab === 'ai'
+                      ? 'bg-purple-100 text-purple-700'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Brain className="h-4 w-4" />
+                  <span>AI Insights</span>
+                </button>
+              </div>
               <Bot className="h-8 w-8 text-indigo-600" />
               <h1 className="text-2xl font-bold text-gray-900">MessageMind</h1>
               <span className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full font-medium">
@@ -258,107 +283,111 @@ export default function Dashboard({ client }: DashboardProps) {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Rooms List */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-            <div className="p-6 border-b border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900">Rooms ({rooms.length})</h2>
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-              {rooms.map(room => {
-                const isWhatsAppRoom = client.getWhatsAppRooms().includes(room);
-                return (
-                  <div
-                    key={room.roomId}
-                    onClick={() => setSelectedRoom(room.roomId)}
-                    className={`p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${
-                      selectedRoom === room.roomId ? 'bg-indigo-50 border-indigo-200' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate text-sm">
-                          {room.name || 'Unnamed Room'}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {room.roomId.substring(0, 30)}...
-                        </p>
-                      </div>
-                      {isWhatsAppRoom && (
-                        <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex-shrink-0">
-                          WA
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Messages List */}
-          <div className="lg:col-span-3 bg-white rounded-xl shadow-sm border border-gray-100">
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Recent Messages 
-                  {searchTerm && ` (${filteredMessages.length} results)`}
-                  {showWhatsAppOnly && ' - WhatsApp Only'}
-                </h2>
-                <div className="text-sm text-gray-500">
-                  {filteredMessages.length} of {messages.length} messages
-                </div>
+        {activeTab === 'messages' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            {/* Rooms List */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+              <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-900">Rooms ({rooms.length})</h2>
               </div>
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-              {filteredMessages.slice(0, 100).map(message => (
-                <div key={message.id} className="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <p className="font-medium text-gray-900 text-sm">
-                          {formatSender(message.sender)}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {message.roomName}
-                        </p>
-                        {message.isWhatsApp && (
-                          <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                            WhatsApp
+              <div className="max-h-96 overflow-y-auto">
+                {rooms.map(room => {
+                  const isWhatsAppRoom = client.getWhatsAppRooms().includes(room);
+                  return (
+                    <div
+                      key={room.roomId}
+                      onClick={() => setSelectedRoom(room.roomId)}
+                      className={`p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${
+                        selectedRoom === room.roomId ? 'bg-indigo-50 border-indigo-200' : ''
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate text-sm">
+                            {room.name || 'Unnamed Room'}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {room.roomId.substring(0, 30)}...
+                          </p>
+                        </div>
+                        {isWhatsAppRoom && (
+                          <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full flex-shrink-0">
+                            WA
                           </span>
                         )}
-                        <span className="text-xs text-gray-400">
-                          {formatTime(message.timestamp)}
-                        </span>
                       </div>
-                      <p className="text-gray-700 text-sm leading-relaxed">
-                        {message.content.length > 200 
-                          ? message.content.substring(0, 200) + '...'
-                          : message.content
-                        }
-                      </p>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Messages List */}
+            <div className="lg:col-span-3 bg-white rounded-xl shadow-sm border border-gray-100">
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Recent Messages 
+                    {searchTerm && ` (${filteredMessages.length} results)`}
+                    {showWhatsAppOnly && ' - WhatsApp Only'}
+                  </h2>
+                  <div className="text-sm text-gray-500">
+                    {filteredMessages.length} of {messages.length} messages
                   </div>
                 </div>
-              ))}
-              
-              {filteredMessages.length === 0 && (
-                <div className="p-12 text-center text-gray-500">
-                  <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-lg font-medium mb-2">
-                    {searchTerm ? 'No messages found' : 'No messages available'}
-                  </p>
-                  <p className="text-sm">
-                    {searchTerm 
-                      ? 'Try adjusting your search terms or filters' 
-                      : 'Messages will appear here as they sync from your Matrix server'
-                    }
-                  </p>
-                </div>
-              )}
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {filteredMessages.slice(0, 100).map(message => (
+                  <div key={message.id} className="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <p className="font-medium text-gray-900 text-sm">
+                            {formatSender(message.sender)}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {message.roomName}
+                          </p>
+                          {message.isWhatsApp && (
+                            <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                              WhatsApp
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-400">
+                            {formatTime(message.timestamp)}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 text-sm leading-relaxed">
+                          {message.content.length > 200 
+                            ? message.content.substring(0, 200) + '...'
+                            : message.content
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {filteredMessages.length === 0 && (
+                  <div className="p-12 text-center text-gray-500">
+                    <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                    <p className="text-lg font-medium mb-2">
+                      {searchTerm ? 'No messages found' : 'No messages available'}
+                    </p>
+                    <p className="text-sm">
+                      {searchTerm 
+                        ? 'Try adjusting your search terms or filters' 
+                        : 'Messages will appear here as they sync from your Matrix server'
+                      }
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <AIInsights client={client} messages={messages} />
+        )}
       </div>
     </div>
   );
