@@ -1,3 +1,4 @@
+// src/lib/ai.ts
 import { HfInference } from '@huggingface/inference';
 
 interface ProcessedMessage {
@@ -33,6 +34,8 @@ export class MessageMindAI {
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
     this.hf = new HfInference(this.apiKey);
+  }
+
   private getPriorityWeight(priority: string): number {
     switch (priority) {
       case 'high': return 3;
@@ -41,7 +44,6 @@ export class MessageMindAI {
       default: return 0;
     }
   }
-}
 
   // Summarize conversation for a specific day (Local processing fallback)
   async generateDailySummary(messages: ProcessedMessage[], date: string): Promise<ConversationSummary[]> {
@@ -335,47 +337,128 @@ export class MessageMindAI {
     return priority;
   }
 
-  // Local summarization fallback
+  // Enhanced local summarization with pattern recognition
   private generateLocalSummary(messages: ProcessedMessage[]): string {
-    if (messages.length < 3) return "Brief conversation.";
+    if (messages.length < 2) return "Brief exchange.";
     
+    const contents = messages.map(m => m.content.toLowerCase());
+    const allText = contents.join(' ');
     const senders = [...new Set(messages.map(m => m.sender))];
-    const messageCount = messages.length;
-    const topics = this.extractTopicsLocal(messages.map(m => m.content).join(' '));
     
-    return `Conversation between ${senders.length} participants with ${messageCount} messages. Main topics: ${topics.slice(0, 3).join(', ')}.`;
+    // Advanced pattern detection
+    const patterns = {
+      questions: messages.filter(m => m.content.includes('?')).length,
+      urgency: this.detectUrgency(allText),
+      emotion: this.detectEmotion(allText),
+      topic: this.extractMainTopic(allText),
+      helpRequest: this.detectHelpRequest(allText),
+      social: this.detectSocialPattern(allText),
+      business: this.detectBusinessPattern(allText)
+    };
+    
+    // Generate contextual summary
+    if (patterns.helpRequest) {
+      return `${messages.length} messages: Help request about ${patterns.topic}. ${patterns.urgency ? 'Urgent assistance needed.' : 'Support conversation.'}`;
+    }
+    
+    if (patterns.business) {
+      return `${messages.length} messages: Work discussion about ${patterns.topic}. ${patterns.questions > 0 ? `${patterns.questions} questions raised.` : 'Information sharing.'}`;
+    }
+    
+    if (patterns.social) {
+      return `${messages.length} messages: Casual conversation about ${patterns.topic}. ${patterns.emotion ? `Tone: ${patterns.emotion}.` : 'Friendly exchange.'}`;
+    }
+    
+    if (patterns.questions > 2) {
+      return `${messages.length} messages: Q&A session about ${patterns.topic}. ${patterns.questions} questions discussed between ${senders.length} participants.`;
+    }
+    
+    return `${messages.length} message conversation between ${senders.length} participants about ${patterns.topic}. ${patterns.emotion ? `Mood: ${patterns.emotion}.` : ''}`;
   }
 
-  // Local sentiment analysis fallback
+  private detectUrgency(text: string): boolean {
+    const urgentWords = ['urgent', 'asap', 'emergency', 'quickly', 'fast', 'immediately', 'help', 'please', 'need', '😭', '🥺', '🙏'];
+    return urgentWords.some(word => text.includes(word));
+  }
+
+  private detectEmotion(text: string): string | null {
+    if (text.includes('😂') || text.includes('😄') || text.includes('lol') || text.includes('haha')) return 'humorous';
+    if (text.includes('😭') || text.includes('😔') || text.includes('sad') || text.includes('upset')) return 'concerned';
+    if (text.includes('😊') || text.includes('thanks') || text.includes('great') || text.includes('awesome')) return 'positive';
+    if (text.includes('angry') || text.includes('mad') || text.includes('frustrated')) return 'frustrated';
+    return null;
+  }
+
+  private detectHelpRequest(text: string): boolean {
+    const helpWords = ['help', 'can you', 'could you', 'please', 'assist', 'support', 'check', '?'];
+    return helpWords.filter(word => text.includes(word)).length >= 2;
+  }
+
+  private detectSocialPattern(text: string): boolean {
+    const socialWords = ['hello', 'hi', 'hey', 'thanks', 'thank you', 'how are you', 'good morning', 'good night', 'lol', '😂', '😊'];
+    return socialWords.some(word => text.includes(word));
+  }
+
+  private detectBusinessPattern(text: string): boolean {
+    const businessWords = ['work', 'project', 'meeting', 'deadline', 'report', 'task', 'job', 'office', 'client', 'business'];
+    return businessWords.some(word => text.includes(word));
+  }
+
+  private extractMainTopic(text: string): string {
+    const keywords = this.extractTopicsLocal(text);
+    const meaningfulKeywords = keywords.filter(word => 
+      !['messagemind', 'duckdns', 'whatsapp'].includes(word.toLowerCase()) &&
+      word.length > 2
+    );
+    
+    return meaningfulKeywords.length > 0 ? meaningfulKeywords[0] : 'general discussion';
+  }
+
+  // Enhanced local sentiment analysis
   private analyzeLocalSentiment(text: string): 'positive' | 'neutral' | 'negative' {
-    const positiveWords = ['good', 'great', 'awesome', 'love', 'happy', 'thanks', 'excellent', 'amazing'];
-    const negativeWords = ['bad', 'awful', 'hate', 'angry', 'sad', 'terrible', 'horrible', 'annoying'];
+    const positiveWords = ['good', 'great', 'awesome', 'love', 'happy', 'thanks', 'excellent', 'amazing', 'perfect', 'wonderful', '😊', '😄', '👍', '❤️', 'lol', 'haha'];
+    const negativeWords = ['bad', 'awful', 'hate', 'angry', 'sad', 'terrible', 'horrible', 'annoying', 'frustrated', 'upset', '😭', '😔', '😡', '👎', 'damn', 'shit'];
     
     const words = text.toLowerCase().split(/\s+/);
-    let positiveCount = 0;
-    let negativeCount = 0;
+    let positiveScore = 0;
+    let negativeScore = 0;
     
     words.forEach(word => {
-      if (positiveWords.includes(word)) positiveCount++;
-      if (negativeWords.includes(word)) negativeCount++;
+      if (positiveWords.some(pw => word.includes(pw))) positiveScore++;
+      if (negativeWords.some(nw => word.includes(nw))) negativeScore++;
     });
     
-    if (positiveCount > negativeCount) return 'positive';
-    if (negativeCount > positiveCount) return 'negative';
+    // Check for context-based sentiment
+    if (text.includes('thank god') || text.includes('finally')) positiveScore += 2;
+    if (text.includes('help') && text.includes('please')) {
+      // Help requests can be neutral to slightly negative
+      negativeScore += 0.5;
+    }
+    
+    const sentimentDiff = positiveScore - negativeScore;
+    if (sentimentDiff > 1) return 'positive';
+    if (sentimentDiff < -1) return 'negative';
     return 'neutral';
   }
 
   private extractTopicsLocal(text: string): string[] {
-    const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'do', 'did', 'does', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these', 'those'];
+    const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'do', 'did', 'does', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these', 'those', 'just', 'not', 'now', 'get', 'go', 'see', 'know', 'think', 'say', 'come', 'want', 'like', 'time', 'way', 'make', 'look', 'take', 'use'];
     
+    // Enhanced topic extraction
     const words = text.toLowerCase()
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
-      .filter(word => word.length > 3 && !stopWords.includes(word));
+      .filter(word => word.length > 2 && !stopWords.includes(word))
+      .filter(word => !['messagemind', 'duckdns'].includes(word)); // Filter out system words
     
     const wordCount: Record<string, number> = {};
     words.forEach(word => {
-      wordCount[word] = (wordCount[word] || 0) + 1;
+      // Give more weight to meaningful words
+      let weight = 1;
+      if (word.length > 6) weight = 2;
+      if (['work', 'help', 'tap', 'check', 'around', 'question', 'problem'].includes(word)) weight = 3;
+      
+      wordCount[word] = (wordCount[word] || 0) + weight;
     });
 
     return Object.entries(wordCount)
@@ -383,3 +466,4 @@ export class MessageMindAI {
       .slice(0, 5)
       .map(([word]) => word);
   }
+}
