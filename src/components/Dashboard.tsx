@@ -188,6 +188,37 @@ export default function Dashboard({ client }: DashboardProps) {
     window.location.reload();
   };
 
+  // Create a mapping of phone numbers to display names from room data
+  const createContactMapping = (): Record<string, string> => {
+    const contactMap: Record<string, string> = {};
+    
+    rooms.forEach(room => {
+      // Extract name from room name patterns like "John Doe (WA)" or "John Doe"
+      if (room.name && room.name !== 'undefined' && !room.name.startsWith('!')) {
+        const cleanRoomName = room.name.replace(/\s*\(WA\)\s*$/, '').trim();
+        
+        // Get room members to find phone number associations
+        const members = room.getJoinedMembers();
+        members.forEach(member => {
+          const userId = member.userId;
+          const phoneMatch = userId.match(/whatsapp_(\d+):/);
+          
+          if (phoneMatch && cleanRoomName && !cleanRoomName.includes('Room') && !cleanRoomName.includes('bridge')) {
+            const phoneNumber = phoneMatch[1];
+            // Only map if the room name looks like a person's name
+            if (cleanRoomName.length > 1 && !phoneNumber.includes(cleanRoomName)) {
+              contactMap[phoneNumber] = cleanRoomName;
+            }
+          }
+        });
+      }
+    });
+    
+    return contactMap;
+  };
+
+  const contactMapping = createContactMapping();
+
   const formatSender = (sender: string) => {
     // Clean up sender name for display
     let cleanSender = sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
@@ -201,12 +232,25 @@ export default function Dashboard({ client }: DashboardProps) {
         if (member?.name && member.name !== cleanSender && !member.name.startsWith('lid-')) {
           return member.name;
         }
+        
+        // Use room name if it looks like a contact name
+        if (room.name && !room.name.includes('Room') && !room.name.includes('bridge')) {
+          const cleanRoomName = room.name.replace(/\s*\(WA\)\s*$/, '').trim();
+          if (cleanRoomName.length > 1) {
+            return cleanRoomName;
+          }
+        }
       }
-      return `Contact ${cleanSender.substring(4, 10)}`;
+      return `Contact`;
     }
     
     // Handle phone numbers - try to get actual display name first
     if (/^\d+$/.test(cleanSender)) {
+      // Check our automatically created contact mapping
+      if (contactMapping[cleanSender]) {
+        return contactMapping[cleanSender];
+      }
+      
       // Try to get display name from room member
       const room = rooms.find(r => r.timeline?.some(event => event.getSender() === sender));
       if (room) {
@@ -216,11 +260,13 @@ export default function Dashboard({ client }: DashboardProps) {
         }
         
         // Check if the room name gives us a clue about the person's name
-        if (room.name && !room.name.includes('(') && !room.name.includes('Room')) {
-          // Extract name from room name like "John Doe (WA)" -> "John Doe"
+        if (room.name && !room.name.includes('(') && !room.name.includes('Room') && !room.name.includes('bridge')) {
           const nameMatch = room.name.match(/^([^(]+)/);
           if (nameMatch) {
-            return nameMatch[1].trim();
+            const extractedName = nameMatch[1].trim();
+            if (extractedName.length > 1) {
+              return extractedName;
+            }
           }
         }
       }

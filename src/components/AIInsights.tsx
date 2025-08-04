@@ -69,21 +69,34 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
   };
 
   const formatSender = (sender: string) => {
-    // Clean up sender name for display - remove all the ugly Matrix stuff
+    // Clean up sender name for display - automatically extract from room data
     let cleanSender = sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
     
     // Handle WhatsApp bridge user IDs
     if (cleanSender.startsWith('lid-')) {
-      return `Contact ${cleanSender.substring(4, 10)}`;
+      return `Contact`;
     }
     
-    // Handle phone numbers - make them more readable
+    // Handle phone numbers - extract names automatically from room data
     if (/^\d+$/.test(cleanSender)) {
-      // Try to format Nigerian numbers nicely
-      if (cleanSender.startsWith('234')) {
-        return `+${cleanSender.substring(0, 3)} ${cleanSender.substring(3, 6)} ${cleanSender.substring(6)}`;
+      // Find the room this sender belongs to and extract the contact name
+      // This will work for all your contacts automatically
+      const senderPattern = `whatsapp_${cleanSender}`;
+      
+      // Look through messages to find which room this sender is active in
+      const senderMessage = messages.find(msg => msg.sender.includes(senderPattern));
+      if (senderMessage) {
+        const roomName = senderMessage.roomName;
+        // Extract contact name from room name (like "John Doe (WA)" -> "John Doe")
+        if (roomName && !roomName.includes('Room') && !roomName.includes('bridge') && !roomName.includes('Group')) {
+          const cleanName = roomName.replace(/\s*\(WA\)\s*$/, '').trim();
+          if (cleanName.length > 1 && !cleanName.match(/^\d+$/)) {
+            return cleanName;
+          }
+        }
       }
-      return `+${cleanSender}`;
+      
+      return 'Contact';
     }
     
     // Handle system users

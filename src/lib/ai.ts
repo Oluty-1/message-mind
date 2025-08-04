@@ -1,3 +1,4 @@
+// src/lib/ai.ts
 import { HfInference } from '@huggingface/inference';
 
 interface ProcessedMessage {
@@ -230,11 +231,12 @@ export class MessageMindAI {
     let clean = sender.split(':')[0].replace('@', '').replace('whatsapp_', '');
     
     if (clean.startsWith('lid-')) {
-      return `Contact${clean.substring(4, 10)}`;
+      return `Contact`;
     }
     
     if (/^\d+$/.test(clean)) {
-      return `User${clean.substring(-4)}`; // Last 4 digits
+      // This will be handled by the component's automatic name extraction
+      return 'Contact';
     }
     
     if (clean.includes('whatsappbot')) {
