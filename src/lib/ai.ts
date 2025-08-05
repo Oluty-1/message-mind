@@ -1,3 +1,4 @@
+// src/lib/ai.ts
 import { HfInference } from '@huggingface/inference';
 
 interface ProcessedMessage {
@@ -27,7 +28,7 @@ interface MessageIntent {
 }
 
 export class MessageMindAI {
-  private hf: HfInference;
+  private hf?: HfInference;
   private apiKey: string;
 
   constructor(apiKey?: string) {
@@ -106,13 +107,13 @@ export class MessageMindAI {
   // Generate embeddings for semantic search
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     try {
-      if (!this.apiKey) {
+      if (!this.apiKey || !this.hf) {
         return []; // No embeddings without API key
       }
       
       const embeddings = await Promise.all(
         texts.map(text => 
-          this.hf.featureExtraction({
+          this.hf!.featureExtraction({
             model: 'sentence-transformers/all-MiniLM-L6-v2',
             inputs: text
           })
@@ -237,13 +238,13 @@ export class MessageMindAI {
   }
 
   private async summarizeText(text: string): Promise<string> {
-    if (!this.apiKey) {
+    if (!this.apiKey || !this.hf) {
       return "AI summary unavailable - no API key configured";
     }
 
     try {
       if (text.length < 30) {
-        return "Conversation too short to summarize";
+        return "Conversation too brief to summarize";
       }
 
       console.log('🤖 Calling Hugging Face API for summarization...');
@@ -253,8 +254,7 @@ export class MessageMindAI {
         inputs: text.slice(0, 1500), // Increased input length for better context
         parameters: {
           max_length: 100,
-          min_length: 20,
-          do_sample: false
+          min_length: 20
         }
       });
 
@@ -262,14 +262,14 @@ export class MessageMindAI {
       console.log('✅ AI Summary generated:', summary);
       return summary;
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Hugging Face API summarization failed:', error);
       return `API Error: ${error.message || 'Summary generation failed'}`;
     }
   }
 
   private async analyzeSentiment(text: string): Promise<'positive' | 'neutral' | 'negative'> {
-    if (!this.apiKey) {
+    if (!this.apiKey || !this.hf) {
       return 'neutral';
     }
 
@@ -314,35 +314,8 @@ export class MessageMindAI {
   private generateLocalSummary(messages: ProcessedMessage[]): string {
     if (messages.length < 2) return "Brief conversation";
     
-    const allText = messages.map(m => m.content).join(' ').toLowerCase();
-    
-    // Actually analyze the conversation content properly
-    if (allText.includes('tap') && allText.includes('open')) {
-      return "Deborah asking for help checking if water tap is open, with responses confirming availability to help.";
-    }
-    
-    if (allText.includes('login') && allText.includes('whatsapp')) {
-      return "WhatsApp bridge setup process with QR code login instructions and successful connection confirmation.";
-    }
-    
-    if (allText.includes('ai') && allText.includes('summary')) {
-      return "Discussion about testing new AI summary features and implementation progress.";
-    }
-    
-    if (allText.includes('packed') && allText.includes('together')) {
-      return "Casual conversation about items being packed together, with brief exchanges and greetings.";
-    }
-    
-    if (allText.includes('gm') || allText.includes('good morning')) {
-      return "Morning greetings and casual conversation between contacts.";
-    }
-    
-    if (allText.includes('?')) {
-      return "Conversation with questions being asked and answered.";
-    }
-    
-    // Fallback
-    return `Casual conversation between contacts with ${messages.length} messages exchanged.`;
+    // Simple fallback when AI is not available
+    return `Conversation with ${messages.length} messages exchanged.`;
   }
 
   private detectUrgency(text: string): boolean {
