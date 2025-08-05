@@ -242,102 +242,105 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
 
       {/* Tab Content */}
       {activeAITab === 'summaries' && (
-        <div className="space-y-6">{/* Daily Summaries */}
-      {dailySummaries.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center space-x-2">
-              <Clock className="h-5 w-5 text-blue-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Daily Conversation Summaries</h3>
-            </div>
-          </div>
-          <div className="p-6 space-y-4">
-            {dailySummaries.map((summary, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-3">
-                    <h4 className="font-medium text-gray-900">{summary.roomName}</h4>
-                    <span className="text-sm text-gray-500">
-                      {getSentimentEmoji(summary.sentiment)} {summary.messageCount} messages
-                    </span>
-                  </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(summary.priority)}`}>
-                    {summary.priority} priority
-                  </span>
-                </div>
-                
-                <p className="text-gray-700 text-sm mb-3 leading-relaxed">{summary.summary}</p>
-                
-                <div className="flex items-center space-x-4 text-xs text-gray-500">
-                  <span>Participants: {summary.participants.map(formatSender).join(', ')}</span>
-                  {summary.keyTopics.length > 0 && (
-                    <span>Topics: {summary.keyTopics.filter(topic => !['messagemind', 'duckdns', 'whatsapp'].includes(topic.toLowerCase())).slice(0, 3).join(', ')}</span>
-                  )}
+        <div className="space-y-6">
+          {/* Daily Summaries */}
+          {dailySummaries.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-center space-x-2">
+                  <Clock className="h-5 w-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Daily Conversation Summaries</h3>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Prioritized Messages */}
-      {prioritizedMessages.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center space-x-2">
-              <TrendingUp className="h-5 w-5 text-green-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Priority Messages</h3>
-            </div>
-          </div>
-          <div className="p-6">
-            <div className="space-y-3">
-              {prioritizedMessages.slice(0, 10).map(message => {
-                // For priority messages, use the room name as the contact name
-                const contactName = message.roomName.replace(/\s*\(WA\)\s*$/, '').trim();
-                
-                return (
-                  <div key={message.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                              <span className="text-indigo-600 font-medium text-sm">
-                                {contactName.charAt(0)}
-                              </span>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900 text-sm">
-                                {contactName}
-                              </p>
-                              <p className="text-xs text-gray-500">{message.roomName}</p>
-                            </div>
-                          </div>
-                          {message.isWhatsApp && (
-                            <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                              WhatsApp
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-gray-700 text-sm mb-2 leading-relaxed">
-                          {message.content.length > 150 
-                            ? message.content.substring(0, 150) + '...'
-                            : message.content
-                          }
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {message.timestamp.toLocaleString()}
-                        </p>
+              <div className="p-6 space-y-4">
+                {dailySummaries.map((summary, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-3">
+                        <h4 className="font-medium text-gray-900">{summary.roomName}</h4>
+                        <span className="text-sm text-gray-500">
+                          {getSentimentEmoji(summary.sentiment)} {summary.messageCount} messages
+                        </span>
                       </div>
-                      <div className="ml-3 flex-shrink-0">
-                        <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
-                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(summary.priority)}`}>
+                        {summary.priority} priority
+                      </span>
+                    </div>
+                    
+                    <p className="text-gray-700 text-sm mb-3 leading-relaxed">{summary.summary}</p>
+                    
+                    <div className="flex items-center space-x-4 text-xs text-gray-500">
+                      <span>Participants: {summary.participants.map(formatSender).join(', ')}</span>
+                      {summary.keyTopics.length > 0 && (
+                        <span>Topics: {summary.keyTopics.filter((topic: string) => !['messagemind', 'duckdns', 'whatsapp'].includes(topic.toLowerCase())).slice(0, 3).join(', ')}</span>
+                      )}
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Prioritized Messages */}
+          {prioritizedMessages.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-center space-x-2">
+                  <TrendingUp className="h-5 w-5 text-green-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Priority Messages</h3>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="space-y-3">
+                  {prioritizedMessages.slice(0, 10).map(message => {
+                    // For priority messages, use the room name as the contact name
+                    const contactName = message.roomName.replace(/\s*\(WA\)\s*$/, '').trim();
+                    
+                    return (
+                      <div key={message.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                                  <span className="text-indigo-600 font-medium text-sm">
+                                    {contactName.charAt(0)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-900 text-sm">
+                                    {contactName}
+                                  </p>
+                                  <p className="text-xs text-gray-500">{message.roomName}</p>
+                                </div>
+                              </div>
+                              {message.isWhatsApp && (
+                                <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                  WhatsApp
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-gray-700 text-sm mb-2 leading-relaxed">
+                              {message.content.length > 150 
+                                ? message.content.substring(0, 150) + '...'
+                                : message.content
+                              }
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {message.timestamp.toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="ml-3 flex-shrink-0">
+                            <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -19,7 +19,7 @@ interface SearchResult {
 }
 
 export class MessageMindVectorStorage {
-  private hf: HfInference;
+  private hf?: HfInference;
   private vectors: VectorEntry[] = [];
   private apiKey: string;
 
@@ -41,7 +41,7 @@ export class MessageMindVectorStorage {
     try {
       console.log('🔍 Generating embedding for text:', text.substring(0, 50) + '...');
       
-      const embedding = await this.hf.featureExtraction({
+      const embedding = await this.hf!.featureExtraction({
         model: 'sentence-transformers/all-MiniLM-L6-v2',
         inputs: text
       });
