@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { MessageMindMatrix } from '@/lib/matrix';
 import { MessageMindAI } from '@/lib/ai';
-import { Brain, TrendingUp, MessageCircle, Clock, AlertCircle, Sparkles } from 'lucide-react';
+import { MessageMindVectorStorage } from '@/lib/vectorStorage';
+import SemanticSearch from './SemanticSearch';
+import { Brain, TrendingUp, MessageCircle, Clock, AlertCircle, Sparkles, Search } from 'lucide-react';
 
 interface ProcessedMessage {
   id: string;
@@ -21,12 +23,14 @@ interface AIInsightsProps {
 
 export default function AIInsights({ client, messages }: AIInsightsProps) {
   const [ai] = useState(() => new MessageMindAI());
+  const [vectorStorage] = useState(() => new MessageMindVectorStorage());
   const [dailySummaries, setDailySummaries] = useState<any[]>([]);
   const [prioritizedMessages, setPrioritizedMessages] = useState<ProcessedMessage[]>([]);
   const [knowledgeBase, setKnowledgeBase] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const [apiStatus, setApiStatus] = useState<'local' | 'api' | 'checking'>('checking');
+  const [activeAITab, setActiveAITab] = useState<'summaries' | 'search' | 'knowledge'>('summaries');
 
   // Check API status on component mount
   useEffect(() => {
@@ -63,6 +67,19 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
       setProcessingStatus('Building knowledge base...');
       const kb = await ai.createKnowledgeBase(messages.slice(0, 100));
       setKnowledgeBase(kb);
+
+      // Add messages to vector storage
+      setProcessingStatus('Indexing messages for semantic search...');
+      await vectorStorage.addMessages(
+        messages.map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          sender: msg.sender,
+          roomName: msg.roomName,
+          timestamp: msg.timestamp,
+          messageType: msg.isWhatsApp ? 'whatsapp' : 'matrix'
+        }))
+      );
 
       setProcessingStatus('Analysis complete!');
     } catch (error) {
@@ -169,11 +186,63 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
         {processingStatus && (
           <div className="mt-4 bg-white/20 rounded-lg p-3">
             <p className="text-sm">{processingStatus}</p>
+            {processingStatus.includes('Indexing') && (
+              <div className="mt-2 bg-white/10 rounded-full h-2">
+                <div className="bg-white h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Daily Summaries */}
+      {/* AI Navigation Tabs */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="flex border-b border-gray-200">
+          <button
+            onClick={() => setActiveAITab('summaries')}
+            className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+              activeAITab === 'summaries'
+                ? 'border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <Brain className="h-4 w-4" />
+              <span>Summaries & Insights</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveAITab('search')}
+            className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+              activeAITab === 'search'
+                ? 'border-b-2 border-blue-500 text-blue-600 bg-blue-50'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <Search className="h-4 w-4" />
+              <span>Semantic Search</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveAITab('knowledge')}
+            className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+              activeAITab === 'knowledge'
+                ? 'border-b-2 border-purple-500 text-purple-600 bg-purple-50'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <MessageCircle className="h-4 w-4" />
+              <span>Knowledge Base</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeAITab === 'summaries' && (
+        <div className="space-y-6">{/* Daily Summaries */}
       {dailySummaries.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">
           <div className="p-6 border-b border-gray-100">
@@ -272,46 +341,56 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
         </div>
       )}
 
-      {/* Knowledge Base */}
-      {knowledgeBase.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center space-x-2">
-              <MessageCircle className="h-5 w-5 text-purple-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Knowledge Base</h3>
-            </div>
-          </div>
-          <div className="p-6">
-            <div className="grid gap-4">
-              {knowledgeBase.slice(0, 5).map((entry, index) => {
-                const cleanRoomName = entry.roomName.replace(/\s*\(WA\)\s*$/, '').trim();
-                
-                return (
-                  <div key={entry.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                          <span className="text-purple-600 font-medium text-xs">KB</span>
+      {/* Semantic Search Tab */}
+      {activeAITab === 'search' && (
+        <SemanticSearch vectorStorage={vectorStorage} />
+      )}
+
+      {/* Knowledge Base Tab */}
+      {activeAITab === 'knowledge' && (
+        <div className="space-y-6">
+          {/* Knowledge Base */}
+          {knowledgeBase.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-center space-x-2">
+                  <MessageCircle className="h-5 w-5 text-purple-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Knowledge Base</h3>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="grid gap-4">
+                  {knowledgeBase.slice(0, 5).map((entry, index) => {
+                    const cleanRoomName = entry.roomName.replace(/\s*\(WA\)\s*$/, '').trim();
+                    
+                    return (
+                      <div key={entry.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                              <span className="text-purple-600 font-medium text-xs">KB</span>
+                            </div>
+                            <div>
+                              <h4 className="font-medium text-gray-900 text-sm">{cleanRoomName}</h4>
+                              <span className="text-xs text-gray-500">{entry.messageCount} messages</span>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="font-medium text-gray-900 text-sm">{cleanRoomName}</h4>
-                          <span className="text-xs text-gray-500">{entry.messageCount} messages</span>
+                        
+                        <div className="bg-purple-50 rounded-lg p-3 mb-3">
+                          <p className="text-gray-800 text-sm leading-relaxed">{entry.summary}</p>
+                        </div>
+                        
+                        <div className="text-xs text-gray-500">
+                          Conversation insights • {new Date(entry.timestamp).toLocaleDateString()}
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="bg-purple-50 rounded-lg p-3 mb-3">
-                      <p className="text-gray-800 text-sm leading-relaxed">{entry.summary}</p>
-                    </div>
-                    
-                    <div className="text-xs text-gray-500">
-                      Conversation insights • {new Date(entry.timestamp).toLocaleDateString()}
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
