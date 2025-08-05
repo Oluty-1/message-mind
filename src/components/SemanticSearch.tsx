@@ -1,3 +1,4 @@
+// src/components/SemanticSearch.tsx
 'use client';
 
 import { useState } from 'react';
@@ -109,7 +110,7 @@ export default function SemanticSearch({ vectorStorage }: SemanticSearchProps) {
               onChange={(e) => setQuery(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Search messages by meaning... (e.g., 'asking for help', 'making plans')"
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
             />
           </div>
           <button
