@@ -32,6 +32,12 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
   useEffect(() => {
     const hasApiKey = process.env.NEXT_PUBLIC_HF_API_KEY;
     setApiStatus(hasApiKey ? 'api' : 'local');
+    
+    if (hasApiKey) {
+      console.log('🤖 MessageMind: Using Hugging Face API for AI summaries');
+    } else {
+      console.log('⚠️ MessageMind: No API key found - AI features will show errors');
+    }
   }, []);
 
   // Process messages with AI
