@@ -7,12 +7,12 @@ MessageMind is a comprehensive messaging infrastructure that integrates Matrix S
 ## ✨ Key Features
 
 ### 🤖 AI-Powered Features
-- **Conversation Summarization** - Intelligent daily reports using Hugging Face models
-- **Intent Parsing** - Advanced NLP with spaCy/BERT for message classification
-- **Vector Storage & Retrieval** - Semantic search with FAISS embeddings
-- **Message Prioritization** - Context-aware importance ranking
-- **Knowledge Base Generation** - Structured conversation insights
-- **Model Fine-tuning** - Adaptive AI models for real-world use cases
+- **Conversation Summarization** - Intelligent daily reports using Hugging Face cloud AI (BART, DialoGPT)
+- **Intent Parsing** - Advanced NLP with BERT/spaCy for message classification and entity extraction
+- **Vector Storage & Retrieval** - Semantic search with FAISS embeddings and Hugging Face models
+- **Message Prioritization** - Context-aware importance ranking with urgency detection
+- **Knowledge Base Generation** - Structured conversation insights with AI-powered topic extraction
+- **Model Fine-tuning** - Adaptive AI models for real-world use cases with contextual training
 
 ### 🔗 Bridge Integration
 - **WhatsApp Bridge** - Seamless WhatsApp integration via Mautrix
@@ -320,4 +320,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Built with ❤️ for the Dailyfix Challenge**

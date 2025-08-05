@@ -57,13 +57,16 @@ export class MessageMindAI {
         const summary = await this.summarizeText(conversationText);
         const sentiment = await this.analyzeSentiment(conversationText);
         
+        const topics = await this.extractTopics(conversationText);
+        const participants = this.extractParticipants(roomMessages);
+        
         summaries.push({
           date,
           roomName,
           messageCount: roomMessages.length,
-          participants: [], // Remove participants - not needed
+          participants,
           summary,
-          keyTopics: [], // Remove topics - not helpful
+          keyTopics: topics,
           sentiment,
           priority: this.calculatePriority(roomMessages, sentiment)
         });
@@ -133,15 +136,17 @@ export class MessageMindAI {
 
     for (const group of messageGroups) {
       try {
-        const summary = await this.summarizeText(this.formatMessagesForAI(group));
+        const conversationText = this.formatMessagesForAI(group);
+        const summary = await this.summarizeText(conversationText);
+        const topics = await this.extractTopics(conversationText);
         
         knowledge.push({
           id: `kb_${Date.now()}_${Math.random()}`,
           timestamp: new Date(),
-          participants: [], // Removed
+          participants: this.extractParticipants(group),
           roomName: group[0].roomName,
           summary,
-          topics: [], // Removed
+          topics,
           messageCount: group.length,
           rawMessages: group.map(m => ({
             sender: m.sender,
@@ -247,24 +252,63 @@ export class MessageMindAI {
         return "Conversation too brief to summarize";
       }
 
-      console.log('🤖 Calling Hugging Face API for summarization...');
+      console.log('🤖 Calling Hugging Face API for conversation summarization...');
       
+      // Use a better model for conversation summarization
       const result = await this.hf.summarization({
         model: 'facebook/bart-large-cnn',
-        inputs: text.slice(0, 1500), // Increased input length for better context
+        inputs: text.slice(0, 2000), // Increased for better context
         parameters: {
-          max_length: 100,
-          min_length: 20
+          max_length: 150,
+          min_length: 30
         }
       });
 
-      const summary = result.summary_text || "Could not generate summary";
+      let summary = result.summary_text || "Could not generate summary";
+      
+      // If the summary is too generic, try with a different approach
+      if (summary.length < 20 || summary.includes("Could not generate")) {
+        console.log('🔄 Trying alternative summarization approach...');
+        
+        // Use text generation with a conversation-specific prompt
+        const prompt = `Summarize this conversation in a clear, concise way:\n\n${text.slice(0, 1500)}\n\nSummary:`;
+        
+        const altResult = await this.hf.textGeneration({
+          model: 'microsoft/DialoGPT-medium',
+          inputs: prompt,
+          parameters: {
+            max_length: 200,
+            temperature: 0.7,
+            do_sample: true,
+            top_p: 0.9
+          }
+        });
+        
+        summary = altResult.generated_text?.replace(prompt, '').trim() || summary;
+      }
+      
       console.log('✅ AI Summary generated:', summary);
       return summary;
       
     } catch (error: any) {
       console.error('❌ Hugging Face API summarization failed:', error);
-      return `API Error: ${error.message || 'Summary generation failed'}`;
+      
+      // Try fallback with a simpler model
+      try {
+        console.log('🔄 Trying fallback summarization...');
+        const fallbackResult = await this.hf.summarization({
+          model: 'sshleifer/distilbart-cnn-12-6',
+          inputs: text.slice(0, 1000),
+          parameters: {
+            max_length: 100,
+            min_length: 20
+          }
+        });
+        
+        return fallbackResult.summary_text || "Summary generation failed";
+      } catch (fallbackError) {
+        return `API Error: ${error.message || 'Summary generation failed'}`;
+      }
     }
   }
 
@@ -410,8 +454,50 @@ export class MessageMindAI {
   }
 
   private async extractTopics(text: string): Promise<string[]> {
-    // Use local topic extraction for now
-    return this.extractTopicsLocal(text);
+    if (!this.apiKey || !this.hf) {
+      return this.extractTopicsLocal(text);
+    }
+
+    try {
+      console.log('🤖 Calling Hugging Face API for topic extraction...');
+      
+      // Use text classification to identify topics
+      const result = await this.hf.textClassification({
+        model: 'facebook/bart-large-mnli',
+        inputs: text.slice(0, 1000)
+      });
+
+      // Extract meaningful topics from the classification
+      const topics = result
+        .filter(r => r.score > 0.3)
+        .map(r => r.label)
+        .slice(0, 5);
+
+      if (topics.length > 0) {
+        console.log('✅ AI Topics extracted:', topics);
+        return topics;
+      }
+      
+      // Fallback to local extraction
+      return this.extractTopicsLocal(text);
+      
+    } catch (error) {
+      console.error('❌ AI topic extraction failed, using local fallback:', error);
+      return this.extractTopicsLocal(text);
+    }
+  }
+
+  private extractParticipants(messages: ProcessedMessage[]): string[] {
+    const participants = new Set<string>();
+    
+    messages.forEach(msg => {
+      const cleanName = this.cleanSenderName(msg.sender);
+      if (cleanName && cleanName !== 'Contact') {
+        participants.add(cleanName);
+      }
+    });
+    
+    return Array.from(participants);
   }
 
   private detectIntent(content: string): { type: string; confidence: number; category: MessageIntent['category'] } {
