@@ -68,8 +68,15 @@ export class MessageMindVectorStorage {
     messageType: 'whatsapp' | 'matrix' = 'whatsapp'
   ): Promise<void> {
     try {
-      // Skip very short or system messages
-      if (content.length < 10 || content.startsWith('!') || content.includes('bridged')) {
+      // Skip only system messages, allow short messages for better search
+      if (content.startsWith('!') || content.includes('bridged') || content.includes('WhatsApp bridge bot')) {
+        console.log(`🚫 Skipping system message: ${content.substring(0, 50)}...`);
+        return;
+      }
+
+      // Skip empty or very short messages
+      if (!content.trim() || content.trim().length < 3) {
+        console.log(`🚫 Skipping very short message: "${content}"`);
         return;
       }
 
@@ -161,7 +168,7 @@ export class MessageMindVectorStorage {
 
       // Sort by similarity and return top results
       const sortedResults = results
-        .filter(result => result.similarity > 0.1) // Filter out very low similarities
+        .filter(result => result.similarity > 0.05) // Lower threshold for better results
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, limit);
 

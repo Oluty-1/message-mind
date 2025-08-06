@@ -34,10 +34,15 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
 
   // Check API status on component mount
   useEffect(() => {
-    const hasApiKey = process.env.NEXT_PUBLIC_HF_API_KEY;
-    setApiStatus(hasApiKey ? 'api' : 'local');
+    const hasOpenAIKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+    const hasHFKey = process.env.NEXT_PUBLIC_HF_API_KEY;
+    const hasAnyKey = hasOpenAIKey || hasHFKey;
     
-    if (hasApiKey) {
+    setApiStatus(hasAnyKey ? 'api' : 'local');
+    
+    if (hasOpenAIKey) {
+      console.log('🤖 MessageMind: Using GPT for maximum reliability');
+    } else if (hasHFKey) {
       console.log('🤖 MessageMind: Using Hugging Face API for AI summaries');
     } else {
       console.log('⚠️ MessageMind: No API key found - AI features will show errors');
@@ -162,12 +167,18 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-yellow-100 text-yellow-800'
                 }`}>
-                  {apiStatus === 'api' ? '🌐 Cloud AI' : '🧠 Local AI'}
+                  {apiStatus === 'api' 
+                    ? (process.env.NEXT_PUBLIC_OPENAI_API_KEY ? '🤖 GPT AI' : '🌐 Cloud AI') 
+                    : '🧠 Local AI'
+                  }
                 </span>
               </div>
               <p className="text-purple-100">
                 {apiStatus === 'api' 
-                  ? 'Powered by Hugging Face models for advanced analysis'
+                  ? (process.env.NEXT_PUBLIC_OPENAI_API_KEY 
+                      ? 'Powered by GPT for maximum reliability and accuracy'
+                      : 'Powered by Hugging Face models for advanced analysis'
+                    )
                   : 'Using local processing for privacy and speed'
                 }
               </p>
