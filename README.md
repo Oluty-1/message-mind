@@ -7,11 +7,11 @@ MessageMind is a comprehensive messaging infrastructure that integrates Matrix S
 ## ✨ Key Features
 
 ### 🤖 AI-Powered Features
-- **Conversation Summarization** - Intelligent daily reports using Hugging Face cloud AI (BART, DialoGPT)
-- **Intent Parsing** - Advanced NLP with BERT/spaCy for message classification and entity extraction
+- **Conversation Summarization** - Intelligent daily reports using GPT-3.5/GPT-4 with Hugging Face fallback
+- **Intent Parsing** - Advanced NLP with GPT for superior understanding, BERT/spaCy as fallback
 - **Vector Storage & Retrieval** - Semantic search with FAISS embeddings and Hugging Face models
 - **Message Prioritization** - Context-aware importance ranking with urgency detection
-- **Knowledge Base Generation** - Structured conversation insights with AI-powered topic extraction
+- **Knowledge Base Generation** - Structured conversation insights with GPT-powered analysis
 - **Model Fine-tuning** - Adaptive AI models for real-world use cases with contextual training
 
 ### 🔗 Bridge Integration
@@ -176,15 +176,17 @@ const results = await tester.runFullTestSuite();
 
 ### Environment Variables
 ```env
-# Hugging Face API
-NEXT_PUBLIC_HF_API_KEY=your_api_key_here
+# AI API Keys (GPT takes priority, Hugging Face as fallback)
+NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key_here
+NEXT_PUBLIC_HF_API_KEY=your_huggingface_api_key_here
 
 # Matrix Configuration
 NEXT_PUBLIC_MATRIX_HOMESERVER=https://your-homeserver.com
 NEXT_PUBLIC_MATRIX_CLIENT_ID=your_client_id
 
 # AI Model Configuration
-NEXT_PUBLIC_AI_MODEL=microsoft/DialoGPT-medium
+NEXT_PUBLIC_GPT_MODEL=gpt-3.5-turbo
+NEXT_PUBLIC_HF_MODEL=microsoft/DialoGPT-medium
 NEXT_PUBLIC_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
 

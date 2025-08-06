@@ -1,5 +1,6 @@
 // src/lib/ai.ts
 import { HfInference } from '@huggingface/inference';
+import { GPTAI } from './gptAI';
 
 interface ProcessedMessage {
   id: string;
@@ -29,16 +30,22 @@ interface MessageIntent {
 
 export class MessageMindAI {
   private hf?: HfInference;
-  private apiKey: string;
+  private gpt?: GPTAI;
+  private hfApiKey: string;
+  private gptApiKey: string;
 
-  constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
+  constructor(hfApiKey?: string, gptApiKey?: string) {
+    this.hfApiKey = hfApiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
+    this.gptApiKey = gptApiKey || process.env.NEXT_PUBLIC_OPENAI_API_KEY || '';
     
-    if (this.apiKey) {
-      this.hf = new HfInference(this.apiKey);
+    if (this.gptApiKey) {
+      this.gpt = new GPTAI({ apiKey: this.gptApiKey });
+      console.log('🤖 MessageMind AI: Using GPT for maximum reliability');
+    } else if (this.hfApiKey) {
+      this.hf = new HfInference(this.hfApiKey);
       console.log('🤖 MessageMind AI: Using Hugging Face API for advanced processing');
     } else {
-      console.log('🧠 MessageMind AI: Using local processing (no API key found)');
+      console.log('🧠 MessageMind AI: Using local processing (no API keys found)');
     }
   }
 
@@ -110,7 +117,7 @@ export class MessageMindAI {
   // Generate embeddings for semantic search
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     try {
-      if (!this.apiKey || !this.hf) {
+      if (!this.hfApiKey || !this.hf) {
         return []; // No embeddings without API key
       }
       
@@ -243,7 +250,21 @@ export class MessageMindAI {
   }
 
   private async summarizeText(text: string): Promise<string> {
-    if (!this.apiKey || !this.hf) {
+    // Try GPT first for maximum reliability
+    if (this.gpt && this.gpt.isAvailable()) {
+      try {
+        console.log('🤖 Using GPT for summarization...');
+        const messages = this.parseTextToMessages(text);
+        const summary = await this.gpt.summarizeConversation(messages);
+        console.log('✅ GPT Summary generated:', summary);
+        return summary;
+      } catch (error) {
+        console.error('❌ GPT summarization failed, falling back to Hugging Face:', error);
+      }
+    }
+
+    // Fallback to Hugging Face
+    if (!this.hfApiKey || !this.hf) {
       return "AI summary unavailable - no API key configured";
     }
 
@@ -313,7 +334,20 @@ export class MessageMindAI {
   }
 
   private async analyzeSentiment(text: string): Promise<'positive' | 'neutral' | 'negative'> {
-    if (!this.apiKey || !this.hf) {
+    // Try GPT first for better sentiment analysis
+    if (this.gpt && this.gpt.isAvailable()) {
+      try {
+        console.log('🤖 Using GPT for sentiment analysis...');
+        const intent = await this.gpt.analyzeIntent(text);
+        console.log('✅ GPT Sentiment detected:', intent.sentiment);
+        return intent.sentiment;
+      } catch (error) {
+        console.error('❌ GPT sentiment analysis failed, falling back to Hugging Face:', error);
+      }
+    }
+
+    // Fallback to Hugging Face
+    if (!this.hfApiKey || !this.hf) {
       return 'neutral';
     }
 
@@ -454,7 +488,20 @@ export class MessageMindAI {
   }
 
   private async extractTopics(text: string): Promise<string[]> {
-    if (!this.apiKey || !this.hf) {
+    // Try GPT first for better topic extraction
+    if (this.gpt && this.gpt.isAvailable()) {
+      try {
+        console.log('🤖 Using GPT for topic extraction...');
+        const topics = await this.gpt.extractTopics(text);
+        console.log('✅ GPT Topics extracted:', topics);
+        return topics;
+      } catch (error) {
+        console.error('❌ GPT topic extraction failed, falling back to Hugging Face:', error);
+      }
+    }
+
+    // Fallback to Hugging Face
+    if (!this.hfApiKey || !this.hf) {
       return this.extractTopicsLocal(text);
     }
 
