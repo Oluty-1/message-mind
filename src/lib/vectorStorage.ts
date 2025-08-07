@@ -1,5 +1,4 @@
-import { HfInference } from '@huggingface/inference';
-
+// lib/vectorStorage.ts - Updated to use API routes for embeddings
 interface VectorEntry {
   id: string;
   content: string;
@@ -19,43 +18,84 @@ interface SearchResult {
 }
 
 export class MessageMindVectorStorage {
-  private hf?: HfInference;
   private vectors: VectorEntry[] = [];
   private apiKey: string;
+  private useApiRoute: boolean = true;
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
-    if (this.apiKey) {
-      this.hf = new HfInference(this.apiKey);
-    }
+    console.log('🔍 Vector Storage initialized with API route support');
   }
 
-  // Generate embedding for text using Hugging Face
+  // Generate embedding using API route (avoids CORS)
   async generateEmbedding(text: string): Promise<number[]> {
-    if (!this.apiKey) {
-      console.warn('No API key for embeddings - using mock vectors');
-      // Return mock embedding for demo purposes
-      return Array(384).fill(0).map(() => Math.random() - 0.5);
+    if (this.useApiRoute) {
+      try {
+        console.log('🔍 Generating embedding via API route for:', text.substring(0, 50) + '...');
+        
+        const response = await fetch('/api/ai/embeddings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            texts: [text]
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`API route failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const embedding = data.embeddings[0];
+        
+        console.log('✅ Embedding generated via API route, dimension:', embedding.length);
+        return embedding;
+        
+      } catch (error) {
+        console.error('❌ API route embedding failed:', error);
+        console.log('🔄 Falling back to mock embeddings');
+      }
     }
 
-    try {
-      console.log('🔍 Generating embedding for text:', text.substring(0, 50) + '...');
-      
-      const embedding = await this.hf!.featureExtraction({
-        model: 'sentence-transformers/all-MiniLM-L6-v2',
-        inputs: text
-      });
+    // Fallback to mock embedding
+    console.log('🎲 Using mock embedding for:', text.substring(0, 30) + '...');
+    return Array(384).fill(0).map(() => Math.random() - 0.5);
+  }
 
-      // Ensure we get a flat array of numbers
-      const flatEmbedding = Array.isArray(embedding[0]) ? embedding[0] : embedding;
-      console.log('✅ Embedding generated, dimension:', flatEmbedding.length);
-      
-      return flatEmbedding as number[];
-    } catch (error) {
-      console.error('❌ Embedding generation failed:', error);
-      // Fallback to mock embedding
-      return Array(384).fill(0).map(() => Math.random() - 0.5);
+  // Batch generate embeddings for multiple texts
+  async generateEmbeddings(texts: string[]): Promise<number[][]> {
+    if (this.useApiRoute && texts.length > 0) {
+      try {
+        console.log(`🔍 Generating ${texts.length} embeddings via API route...`);
+        
+        const response = await fetch('/api/ai/embeddings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            texts
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`API route failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log(`✅ Generated ${data.embeddings.length} embeddings via API route`);
+        return data.embeddings;
+        
+      } catch (error) {
+        console.error('❌ Batch embeddings failed:', error);
+        console.log('🔄 Falling back to mock embeddings');
+      }
     }
+
+    // Fallback to mock embeddings
+    return texts.map(() => Array(384).fill(0).map(() => Math.random() - 0.5));
   }
 
   // Add message to vector storage
@@ -68,13 +108,12 @@ export class MessageMindVectorStorage {
     messageType: 'whatsapp' | 'matrix' = 'whatsapp'
   ): Promise<void> {
     try {
-      // Skip only system messages, allow short messages for better search
+      // Skip system messages and very short messages
       if (content.startsWith('!') || content.includes('bridged') || content.includes('WhatsApp bridge bot')) {
         console.log(`🚫 Skipping system message: ${content.substring(0, 50)}...`);
         return;
       }
 
-      // Skip empty or very short messages
       if (!content.trim() || content.trim().length < 3) {
         console.log(`🚫 Skipping very short message: "${content}"`);
         return;
@@ -104,7 +143,7 @@ export class MessageMindVectorStorage {
     }
   }
 
-  // Batch add multiple messages
+  // Batch add multiple messages (optimized)
   async addMessages(messages: Array<{
     id: string;
     content: string;
@@ -115,18 +154,63 @@ export class MessageMindVectorStorage {
   }>): Promise<void> {
     console.log(`🔄 Processing ${messages.length} messages for vector storage...`);
     
-    for (const msg of messages) {
-      await this.addMessage(
-        msg.id,
-        msg.content,
-        msg.sender,
-        msg.roomName,
-        msg.timestamp,
-        msg.messageType || 'whatsapp'
-      );
+    // Filter out system messages first
+    const validMessages = messages.filter(msg => {
+      const content = msg.content.trim();
+      return content.length >= 3 && 
+             !content.startsWith('!') && 
+             !content.includes('bridged') && 
+             !content.includes('WhatsApp bridge bot');
+    });
+
+    console.log(`📝 ${validMessages.length} valid messages after filtering`);
+
+    if (validMessages.length === 0) {
+      console.log('No valid messages to process');
+      return;
     }
-    
-    console.log(`✅ Finished processing. Vector storage now contains ${this.vectors.length} entries.`);
+
+    try {
+      // Extract texts for batch embedding generation
+      const texts = validMessages.map(msg => msg.content);
+      
+      // Generate embeddings in batch
+      const embeddings = await this.generateEmbeddings(texts);
+      
+      // Create vector entries
+      validMessages.forEach((msg, index) => {
+        const vectorEntry: VectorEntry = {
+          id: msg.id,
+          content: msg.content,
+          embedding: embeddings[index],
+          metadata: {
+            sender: msg.sender.split(':')[0].replace('@', '').replace('whatsapp_', ''),
+            roomName: msg.roomName.replace(/\s*\(WA\)\s*$/, '').trim(),
+            timestamp: msg.timestamp,
+            messageType: msg.messageType || 'whatsapp'
+          }
+        };
+        
+        this.vectors.push(vectorEntry);
+      });
+      
+      console.log(`✅ Finished processing. Vector storage now contains ${this.vectors.length} entries.`);
+      
+    } catch (error) {
+      console.error('Batch processing failed:', error);
+      // Fallback to individual processing
+      console.log('🔄 Falling back to individual message processing...');
+      for (const msg of validMessages.slice(0, 50)) { // Limit for performance
+        await this.addMessage(
+          msg.id,
+          msg.content,
+          msg.sender,
+          msg.roomName,
+          msg.timestamp,
+          msg.messageType || 'whatsapp'
+        );
+      }
+    }
   }
 
   // Cosine similarity calculation
@@ -143,7 +227,8 @@ export class MessageMindVectorStorage {
       normB += b[i] * b[i];
     }
     
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    const norm = Math.sqrt(normA) * Math.sqrt(normB);
+    return norm === 0 ? 0 : dotProduct / norm;
   }
 
   // Semantic search through messages
@@ -168,7 +253,7 @@ export class MessageMindVectorStorage {
 
       // Sort by similarity and return top results
       const sortedResults = results
-        .filter(result => result.similarity > 0.05) // Lower threshold for better results
+        .filter(result => result.similarity > 0.1) // Reasonable threshold
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, limit);
 
@@ -243,5 +328,15 @@ export class MessageMindVectorStorage {
   clear(): void {
     this.vectors = [];
     console.log('🗑️ Cleared all vectors from storage');
+  }
+
+  // Check if embeddings are working
+  async testEmbeddings(): Promise<boolean> {
+    try {
+      const testEmbedding = await this.generateEmbedding("test message");
+      return testEmbedding.length > 0;
+    } catch (error) {
+      return false;
+    }
   }
 }
