@@ -42,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const errorText = await response.text();
       console.error(`HF API Error (${response.status}):`, errorText);
       
-      // Handle specific errors
+      // Handle specific errors more gracefully
       if (response.status === 503) {
         return res.status(503).json({ 
           error: 'Model is loading, please try again in a few moments',
@@ -50,11 +50,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
       }
       
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
+      if (response.status === 404) {
+        return res.status(404).json({ 
+          error: `Model ${model} not found or unavailable`,
+          model
+        });
+      }
+      
+      if (response.status === 504) {
+        return res.status(504).json({ 
+          error: `Model ${model} timed out - please try again`,
+          model
+        });
+      }
+      
+      throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 200)}`);
     }
 
     const result = await response.json();
-    console.log('✅ HF API Success');
+    console.log(`✅ HF API Success for ${model}`);
 
     res.status(200).json({ 
       success: true, 
@@ -64,7 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
   } catch (error: any) {
-    console.error('❌ HF API proxy error:', error);
+    console.error('❌ HF API proxy error:', error.message);
     res.status(500).json({ 
       error: error.message || 'Failed to call Hugging Face API',
       task,
