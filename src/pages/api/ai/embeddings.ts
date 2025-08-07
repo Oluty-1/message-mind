@@ -32,10 +32,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const batchEmbeddings = await Promise.all(
         batch.map(async (text: string) => {
           try {
-            const embedding = await hf.featureExtraction({
-              model: 'sentence-transformers/all-MiniLM-L6-v2',
-              inputs: text.slice(0, 500) // Limit text length
-            });
+            // Try multiple embedding models for reliability
+            const embeddingModels = [
+              'sentence-transformers/all-MiniLM-L6-v2',
+              'sentence-transformers/all-mpnet-base-v2',
+              'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
+            ];
+            
+            let embedding = null;
+            for (const model of embeddingModels) {
+              try {
+                embedding = await hf.featureExtraction({
+                  model: model,
+                  inputs: text.slice(0, 400) // Limit text length
+                });
+                break; // Success, exit loop
+              } catch (modelError) {
+                console.log(`Embedding model ${model} failed, trying next...`);
+                continue;
+              }
+            }
+            
+            if (!embedding) {
+              throw new Error('All embedding models failed');
+            }
 
             // Ensure we get a flat array of numbers
             const flatEmbedding = Array.isArray(embedding[0]) ? embedding[0] : embedding;

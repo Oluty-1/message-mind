@@ -1,4 +1,4 @@
-// lib/ai.ts - Properly fixed with working Hugging Face models
+// Updated lib/ai.ts with more reliable HF models
 import { HfInference } from '@huggingface/inference';
 import { GPTAI } from './gptAI';
 
@@ -33,21 +33,54 @@ export class MessageMindAI {
   private gpt?: GPTAI;
   private hfApiKey: string;
   private gptApiKey: string;
+  private useApiRoute: boolean;
   private hfFailed: boolean = false;
 
   constructor(hfApiKey?: string, gptApiKey?: string) {
     this.hfApiKey = hfApiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
     this.gptApiKey = ''; // Disabled due to quota
     
+    // Use API routes to avoid CORS issues
+    this.useApiRoute = true;
+    
     console.log('🔍 Checking API keys...');
     console.log('HF Key present:', !!this.hfApiKey);
-    console.log('OpenAI disabled due to quota limits');
+    console.log('Using reliable HF models via API routes');
     
     if (this.hfApiKey) {
-      this.hf = new HfInference(this.hfApiKey);
-      console.log('🤖 MessageMind AI: Using Hugging Face API for generative AI');
+      console.log('🤖 MessageMind AI: Using Hugging Face via API routes with reliable models');
     } else {
       console.log('🧠 MessageMind AI: Using local processing (no API keys found)');
+    }
+  }
+
+  // Call Hugging Face via API route with reliable models
+  private async callHuggingFaceAPI(model: string, inputs: string, task: string, parameters: any = {}): Promise<any> {
+    try {
+      const response = await fetch('/api/ai/huggingface', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          inputs,
+          task,
+          parameters
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `API route error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.result;
+
+    } catch (error: any) {
+      console.error(`❌ API route call failed for ${task}:`, error);
+      throw error;
     }
   }
 
@@ -61,7 +94,6 @@ export class MessageMindAI {
       try {
         const conversationText = this.formatMessagesForAI(roomMessages);
         
-        // Use generative AI for summaries, sentiment, and topics
         const summary = await this.summarizeText(conversationText);
         const sentiment = await this.analyzeSentiment(conversationText);
         const topics = await this.extractTopics(conversationText);
@@ -80,7 +112,7 @@ export class MessageMindAI {
       } catch (error) {
         console.error(`Failed to process room ${roomName}:`, error);
         
-        // Even on error, create a basic summary
+        // Create fallback summary
         summaries.push({
           date,
           roomName,
@@ -97,104 +129,123 @@ export class MessageMindAI {
     return summaries.sort((a, b) => this.getPriorityWeight(b.priority) - this.getPriorityWeight(a.priority));
   }
 
-  // GENERATIVE AI: Text Summarization using Hugging Face
+  // Use more reliable summarization models
   private async summarizeText(text: string): Promise<string> {
-    // Try Hugging Face generative AI first
-    if (this.hf && this.hfApiKey && !this.hfFailed) {
+    if (this.useApiRoute && this.hfApiKey && !this.hfFailed) {
       try {
         if (text.length < 30) {
           return "Conversation too brief to summarize";
         }
 
-        console.log('🤖 Using Hugging Face generative AI for summarization...');
+        console.log('🤖 Using reliable HF models for summarization...');
         
-        // Use text generation for better summaries
-        const prompt = `Summarize this conversation concisely:\n\n${text.slice(0, 1500)}\n\nSummary:`;
-        
-        const result = await this.hf.textGeneration({
-          model: 'microsoft/DialoGPT-medium',
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 100,
-            temperature: 0.7,
-            do_sample: true,
-            top_p: 0.9,
-            stop: ['\n\n', 'Human:', 'User:']
-          }
-        });
+        // Try reliable summarization models in order of preference
+        const summarizationModels = [
+          'facebook/bart-large-cnn',
+          'sshleifer/distilbart-cnn-12-6',
+          't5-small'
+        ];
 
-        let summary = result.generated_text?.replace(prompt, '').trim() || '';
-        
-        // If DialoGPT fails, try BART summarization
-        if (!summary || summary.length < 10) {
-          console.log('🔄 Trying BART summarization...');
-          
-          const bartResult = await this.hf.summarization({
-            model: 'sshleifer/distilbart-cnn-12-6',
-            inputs: text.slice(0, 1000),
-            parameters: {
-              max_length: 100,
-              min_length: 20,
-              do_sample: false
+        for (const model of summarizationModels) {
+          try {
+            console.log(`🔄 Trying summarization model: ${model}`);
+            
+            const result = await this.callHuggingFaceAPI(
+              model,
+              text.slice(0, 1000),
+              'summarization',
+              {
+                max_length: 100,
+                min_length: 20,
+                do_sample: false
+              }
+            );
+            
+            const summary = result.summary_text || result[0]?.summary_text || '';
+            if (summary && summary.length > 10) {
+              console.log(`✅ ${model} summary generated:`, summary);
+              return summary;
             }
-          });
-          
-          summary = bartResult.summary_text || '';
+          } catch (modelError) {
+            console.log(`❌ Model ${model} failed:`, modelError.message);
+            continue;
+          }
         }
         
-        if (summary && summary.length > 10) {
-          console.log('✅ HF Generative AI summary:', summary);
-          return summary;
+        // If all summarization models fail, try text generation
+        console.log('🔄 Trying text generation for summarization...');
+        try {
+          const prompt = `Summarize this conversation in 1-2 sentences:\n\n${text.slice(0, 800)}\n\nSummary:`;
+          
+          const result = await this.callHuggingFaceAPI(
+            'gpt2',
+            prompt,
+            'text-generation',
+            {
+              max_length: prompt.length + 50,
+              temperature: 0.7,
+              do_sample: true
+            }
+          );
+
+          const generated = result[0]?.generated_text || '';
+          const summary = generated.replace(prompt, '').trim();
+          
+          if (summary && summary.length > 10) {
+            console.log('✅ GPT-2 summary generated:', summary);
+            return summary;
+          }
+        } catch (genError) {
+          console.log('❌ Text generation also failed:', genError.message);
         }
         
       } catch (error: any) {
-        console.error('❌ Hugging Face AI failed:', error);
-        
-        // If it's a CORS or network error, mark HF as failed for this session
-        if (error.message?.includes('CORS') || error.message?.includes('fetch') || error.message?.includes('network')) {
-          console.log('🔄 HF API unavailable, switching to local processing');
-          this.hfFailed = true;
-        }
+        console.error('❌ All HF summarization methods failed:', error);
+        this.hfFailed = true;
       }
     }
 
     // Fallback to enhanced local processing
-    console.log('🧠 Using local AI processing...');
+    console.log('🧠 Using enhanced local summarization...');
     return this.generateLocalSummary(this.parseTextToMessages(text));
   }
 
-  // GENERATIVE AI: Sentiment Analysis using Hugging Face
+  // Use more reliable sentiment models
   private async analyzeSentiment(text: string): Promise<'positive' | 'neutral' | 'negative'> {
-    if (this.hf && this.hfApiKey && !this.hfFailed) {
+    if (this.useApiRoute && this.hfApiKey && !this.hfFailed) {
       try {
-        console.log('🤖 Using Hugging Face AI for sentiment analysis...');
+        console.log('🤖 Using reliable HF models for sentiment analysis...');
         
-        // Try different sentiment models
-        const models = [
-          'cardiffnlp/twitter-roberta-base-sentiment',
-          'nlptown/bert-base-multilingual-uncased-sentiment',
-          'distilbert-base-uncased-finetuned-sst-2-english'
+        // Try reliable sentiment models
+        const sentimentModels = [
+          'cardiffnlp/twitter-roberta-base-sentiment-latest',
+          'distilbert-base-uncased-finetuned-sst-2-english',
+          'nlptown/bert-base-multilingual-uncased-sentiment'
         ];
         
-        for (const model of models) {
+        for (const model of sentimentModels) {
           try {
-            const result = await this.hf.textClassification({
-              model: model,
-              inputs: text.slice(0, 500)
-            });
+            console.log(`🔄 Trying sentiment model: ${model}`);
+            
+            const result = await this.callHuggingFaceAPI(
+              model,
+              text.slice(0, 500),
+              'text-classification',
+              {}
+            );
 
-            const sentiment = result[0]?.label?.toLowerCase();
-            console.log('✅ HF Sentiment detected:', sentiment, 'with model:', model);
+            const sentiment = result[0]?.label?.toLowerCase() || '';
+            console.log(`✅ ${model} sentiment detected:`, sentiment);
             
             // Handle different label formats
-            if (sentiment?.includes('positive') || sentiment?.includes('pos') || sentiment === 'label_2') return 'positive';
-            if (sentiment?.includes('negative') || sentiment?.includes('neg') || sentiment === 'label_0') return 'negative';
+            if (sentiment.includes('positive') || sentiment.includes('pos') || sentiment === 'label_2') return 'positive';
+            if (sentiment.includes('negative') || sentiment.includes('neg') || sentiment === 'label_0') return 'negative';
             if (sentiment === 'label_1') return 'neutral';
             
             return 'neutral';
             
           } catch (modelError) {
-            console.log(`Model ${model} failed, trying next...`);
+            console.log(`❌ Sentiment model ${model} failed:`, modelError.message);
             continue;
           }
         }
@@ -206,57 +257,18 @@ export class MessageMindAI {
     }
 
     // Fallback to local sentiment analysis
-    console.log('🧠 Using local sentiment analysis...');
+    console.log('🧠 Using enhanced local sentiment analysis...');
     return this.analyzeLocalSentiment(text);
   }
 
-  // GENERATIVE AI: Topic Extraction using Hugging Face
+  // Simplified topic extraction using local processing
   private async extractTopics(text: string): Promise<string[]> {
-    if (this.hf && this.hfApiKey && !this.hfFailed) {
-      try {
-        console.log('🤖 Using Hugging Face AI for topic extraction...');
-        
-        // Use text generation to extract topics
-        const prompt = `Extract 3-5 key topics from this conversation. List them separated by commas:\n\n${text.slice(0, 1000)}\n\nTopics:`;
-        
-        const result = await this.hf.textGeneration({
-          model: 'microsoft/DialoGPT-medium',
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 50,
-            temperature: 0.5,
-            do_sample: true,
-            stop: ['\n', 'Human:', 'User:']
-          }
-        });
-
-        const topicsText = result.generated_text?.replace(prompt, '').trim() || '';
-        
-        if (topicsText) {
-          const topics = topicsText
-            .split(',')
-            .map(topic => topic.trim())
-            .filter(topic => topic.length > 0 && topic.length < 30)
-            .slice(0, 5);
-          
-          if (topics.length > 0) {
-            console.log('✅ HF Topics extracted:', topics);
-            return topics;
-          }
-        }
-        
-      } catch (error: any) {
-        console.error('❌ HF topic extraction failed:', error);
-        this.hfFailed = true;
-      }
-    }
-
-    // Fallback to local topic extraction
-    console.log('🧠 Using local topic extraction...');
+    // For now, use local extraction for reliability
+    console.log('🧠 Using enhanced local topic extraction...');
     return this.extractTopicsLocal(text);
   }
 
-  // Enhanced local processing (fallbacks)
+  // Enhanced local processing methods
   private generateLocalSummary(messages: any[]): string {
     if (messages.length < 2) return "Brief conversation";
     
@@ -264,29 +276,29 @@ export class MessageMindAI {
     const participants = new Set(messages.map(m => m.sender)).size;
     const allText = messages.map(m => m.content).join(' ').toLowerCase();
     
-    // Smart local analysis
-    if (allText.includes('help') || allText.includes('please') || allText.includes('can you')) {
-      return `Help request discussion with ${messageCount} messages between ${participants} participants`;
-    }
+    // Smart pattern recognition for better summaries
+    const patterns = [
+      { keywords: ['help', 'please', 'can you', 'could you'], summary: 'assistance request' },
+      { keywords: ['meeting', 'work', 'project', 'task'], summary: 'work discussion' },
+      { keywords: ['thanks', 'thank you', 'great', 'awesome'], summary: 'positive exchange' },
+      { keywords: ['problem', 'issue', 'error', 'fix'], summary: 'problem solving' },
+      { keywords: ['plan', 'schedule', 'time', 'when'], summary: 'planning discussion' },
+      { keywords: ['question', 'what', 'how', 'why'], summary: 'Q&A session' },
+      { keywords: ['update', 'news', 'info', 'tell'], summary: 'information sharing' }
+    ];
     
-    if (allText.includes('meeting') || allText.includes('work') || allText.includes('project')) {
-      return `Work-related conversation with ${messageCount} messages between ${participants} participants`;
-    }
-    
-    if (allText.includes('thanks') || allText.includes('great') || allText.includes('awesome')) {
-      return `Positive discussion with ${messageCount} messages between ${participants} participants`;
-    }
-    
-    if (allText.includes('problem') || allText.includes('issue') || allText.includes('error')) {
-      return `Problem-solving conversation with ${messageCount} messages between ${participants} participants`;
+    for (const pattern of patterns) {
+      if (pattern.keywords.some(keyword => allText.includes(keyword))) {
+        return `${pattern.summary.charAt(0).toUpperCase() + pattern.summary.slice(1)} with ${messageCount} messages between ${participants} participants`;
+      }
     }
     
     return `General conversation with ${messageCount} messages between ${participants} participants`;
   }
 
   private analyzeLocalSentiment(text: string): 'positive' | 'neutral' | 'negative' {
-    const positiveWords = ['good', 'great', 'awesome', 'love', 'happy', 'thanks', 'excellent', 'amazing', 'perfect', 'wonderful', '😊', '😄', '👍', '❤️', 'lol', 'haha', 'yes', 'sure', 'okay', 'nice', 'cool'];
-    const negativeWords = ['bad', 'awful', 'hate', 'angry', 'sad', 'terrible', 'horrible', 'annoying', 'frustrated', 'upset', '😭', '😔', '😡', '👎', 'no', 'can\'t', 'won\'t', 'problem', 'issue', 'error', 'wrong', 'fail'];
+    const positiveWords = ['good', 'great', 'awesome', 'love', 'happy', 'thanks', 'excellent', 'amazing', 'perfect', 'wonderful', '😊', '😄', '👍', '❤️', 'lol', 'haha', 'yes', 'sure', 'okay', 'nice', 'cool', 'fine', 'alright', 'exactly', 'correct'];
+    const negativeWords = ['bad', 'awful', 'hate', 'angry', 'sad', 'terrible', 'horrible', 'annoying', 'frustrated', 'upset', '😭', '😔', '😡', '👎', 'no', 'can\'t', 'won\'t', 'problem', 'issue', 'error', 'wrong', 'fail', 'difficult', 'hard', 'trouble'];
     
     const words = text.toLowerCase().split(/\s+/);
     let positiveScore = 0;
@@ -300,7 +312,8 @@ export class MessageMindAI {
     // Context-based adjustments
     if (text.includes('thank') && text.includes('help')) positiveScore += 2;
     if (text.includes('sorry') && text.includes('problem')) negativeScore += 1;
-    if (text.includes('solved') || text.includes('fixed')) positiveScore += 1;
+    if (text.includes('solved') || text.includes('fixed') || text.includes('working')) positiveScore += 1;
+    if (text.includes('broken') || text.includes('failed')) negativeScore += 1;
     
     const sentimentDiff = positiveScore - negativeScore;
     if (sentimentDiff > 1) return 'positive';
@@ -309,19 +322,30 @@ export class MessageMindAI {
   }
 
   private extractTopicsLocal(text: string): string[] {
-    const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'do', 'did', 'does', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these', 'those', 'just', 'not', 'now', 'get', 'go', 'see', 'know', 'think', 'say', 'come', 'want', 'like', 'time', 'way', 'make', 'look', 'take', 'use'];
+    const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'do', 'did', 'does', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these', 'those', 'just', 'not', 'now', 'get', 'go', 'see', 'know', 'think', 'say', 'come', 'want', 'like', 'time', 'way', 'make', 'look', 'take', 'use', 'well', 'also', 'back', 'after', 'first', 'new', 'good', 'high', 'small', 'large', 'next', 'early', 'young', 'important', 'few', 'public', 'same', 'able'];
     
+    // Enhanced topic extraction with better patterns
     const words = text.toLowerCase()
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
       .filter(word => word.length > 2 && !stopWords.includes(word))
-      .filter(word => !['messagemind', 'duckdns', 'whatsapp', 'matrix'].includes(word));
+      .filter(word => !['messagemind', 'duckdns', 'whatsapp', 'matrix', 'bridge', 'bridged'].includes(word));
     
     const wordCount: Record<string, number> = {};
+    const importantTopics = ['work', 'help', 'meeting', 'project', 'question', 'problem', 'solution', 'update', 'plan', 'task', 'issue', 'request', 'support', 'discussion', 'planning', 'development', 'system', 'application', 'feature', 'user', 'data', 'process'];
+    
     words.forEach(word => {
       let weight = 1;
+      
+      // Give more weight to longer words
       if (word.length > 6) weight = 2;
-      if (['work', 'help', 'meeting', 'project', 'question', 'problem', 'solution', 'update', 'plan', 'task', 'issue'].includes(word)) weight = 3;
+      if (word.length > 8) weight = 3;
+      
+      // Give extra weight to important topics
+      if (importantTopics.includes(word)) weight = 5;
+      
+      // Give weight to tech/business terms
+      if (word.includes('app') || word.includes('tech') || word.includes('system')) weight = 3;
       
       wordCount[word] = (wordCount[word] || 0) + weight;
     });
@@ -362,7 +386,6 @@ export class MessageMindAI {
   }
 
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
-    // Embeddings require special handling - skip for now
     return [];
   }
 
@@ -543,8 +566,8 @@ export class MessageMindAI {
 
   getAIStatus(): { hf: boolean; local: boolean; quotaExceeded: boolean } {
     return {
-      hf: !!this.hf && !this.hfFailed,
-      local: this.hfFailed || !this.hf,
+      hf: this.useApiRoute && !!this.hfApiKey && !this.hfFailed,
+      local: this.hfFailed || !this.hfApiKey,
       quotaExceeded: false
     };
   }
