@@ -1,3 +1,4 @@
+// Updated AIInsights.tsx with better error handling and status display
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -5,7 +6,7 @@ import { MessageMindMatrix } from '@/lib/matrix';
 import { MessageMindAI } from '@/lib/ai';
 import { MessageMindVectorStorage } from '@/lib/vectorStorage';
 import SemanticSearch from './SemanticSearch';
-import { Brain, TrendingUp, MessageCircle, Clock, AlertCircle, Sparkles, Search } from 'lucide-react';
+import { Brain, TrendingUp, MessageCircle, Clock, AlertCircle, Sparkles, Search, Wifi, WifiOff } from 'lucide-react';
 
 interface ProcessedMessage {
   id: string;
@@ -29,93 +30,94 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
   const [knowledgeBase, setKnowledgeBase] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
-  const [apiStatus, setApiStatus] = useState<'local' | 'api' | 'checking'>('checking');
+  const [aiStatus, setAiStatus] = useState({ hf: false, local: false, quotaExceeded: false });
   const [activeAITab, setActiveAITab] = useState<'summaries' | 'search' | 'knowledge'>('summaries');
 
-  // Check API status on component mount
+  // Check AI status on component mount
   useEffect(() => {
-    const hasOpenAIKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-    const hasHFKey = process.env.NEXT_PUBLIC_HF_API_KEY;
-    const hasAnyKey = hasOpenAIKey || hasHFKey;
+    const status = ai.getAIStatus();
+    setAiStatus(status);
     
-    setApiStatus(hasAnyKey ? 'api' : 'local');
+    console.log('🤖 AI Status:', status);
     
-    if (hasOpenAIKey) {
-      console.log('🤖 MessageMind: Using GPT for maximum reliability');
-    } else if (hasHFKey) {
-      console.log('🤖 MessageMind: Using Hugging Face API for AI summaries');
+    if (status.hf) {
+      console.log('🤖 MessageMind: Using Hugging Face API for AI features');
+    } else if (status.local) {
+      console.log('🧠 MessageMind: Using local processing for AI features');
     } else {
-      console.log('⚠️ MessageMind: No API key found - AI features will show errors');
+      console.log('⚠️ MessageMind: Limited AI features available');
     }
-  }, []);
+  }, [ai]);
 
   // Process messages with AI
   const processWithAI = async () => {
     if (messages.length === 0) return;
     
     setLoading(true);
-    setProcessingStatus('Analyzing conversations...');
+    setProcessingStatus('Starting AI analysis...');
 
     try {
       // Generate daily summary for today
       const today = new Date().toISOString().split('T')[0];
-      setProcessingStatus('Generating daily summaries...');
+      setProcessingStatus('Generating conversation summaries...');
+      
+      console.log('🔄 Starting AI processing with', messages.length, 'messages');
       const summaries = await ai.generateDailySummary(messages, today);
+      console.log('✅ Generated', summaries.length, 'summaries');
       setDailySummaries(summaries);
 
       // Prioritize messages
-      setProcessingStatus('Prioritizing messages...');
-      const prioritized = ai.prioritizeMessages(messages.slice(0, 50)); // Limit for performance
+      setProcessingStatus('Analyzing message priorities...');
+      const prioritized = ai.prioritizeMessages(messages.slice(0, 50));
+      console.log('✅ Prioritized', prioritized.length, 'messages');
       setPrioritizedMessages(prioritized);
 
       // Create knowledge base
       setProcessingStatus('Building knowledge base...');
       const kb = await ai.createKnowledgeBase(messages.slice(0, 100));
+      console.log('✅ Created knowledge base with', kb.length, 'entries');
       setKnowledgeBase(kb);
 
-      // Add messages to vector storage
-      setProcessingStatus('Indexing messages for semantic search...');
-      await vectorStorage.addMessages(
-        messages.map(msg => ({
-          id: msg.id,
-          content: msg.content,
-          sender: msg.sender,
-          roomName: msg.roomName,
-          timestamp: msg.timestamp,
-          messageType: msg.isWhatsApp ? 'whatsapp' : 'matrix'
-        }))
-      );
+      // Add messages to vector storage (skip if no embeddings available)
+      setProcessingStatus('Indexing messages...');
+      try {
+        await vectorStorage.addMessages(
+          messages.map(msg => ({
+            id: msg.id,
+            content: msg.content,
+            sender: msg.sender,
+            roomName: msg.roomName,
+            timestamp: msg.timestamp,
+            messageType: msg.isWhatsApp ? 'whatsapp' : 'matrix'
+          }))
+        );
+        console.log('✅ Indexed messages for search');
+      } catch (embeddingError) {
+        console.log('⚠️ Vector indexing skipped (embeddings not available)');
+      }
 
-      setProcessingStatus('Analysis complete!');
+      setProcessingStatus('✅ Analysis complete!');
     } catch (error) {
-      console.error('AI processing failed:', error);
-      setProcessingStatus('Analysis failed. Please try again.');
+      console.error('❌ AI processing failed:', error);
+      setProcessingStatus('❌ Analysis completed with some limitations');
     } finally {
       setLoading(false);
-      setTimeout(() => setProcessingStatus(''), 3000);
+      setTimeout(() => setProcessingStatus(''), 5000);
     }
   };
 
   const formatSender = (sender: string) => {
-    // Clean up sender name for display - automatically extract from room data
     let cleanSender = sender.split(':')[0].replace('@', '').replace('whatsapp_', '').replace('_', ' ');
     
-    // Handle WhatsApp bridge user IDs
     if (cleanSender.startsWith('lid-')) {
       return `Contact`;
     }
     
-    // Handle phone numbers - extract names automatically from room data
     if (/^\d+$/.test(cleanSender)) {
-      // Find the room this sender belongs to and extract the contact name
-      // This will work for all your contacts automatically
       const senderPattern = `whatsapp_${cleanSender}`;
-      
-      // Look through messages to find which room this sender is active in
       const senderMessage = messages.find(msg => msg.sender.includes(senderPattern));
       if (senderMessage) {
         const roomName = senderMessage.roomName;
-        // Extract contact name from room name (like "John Doe (WA)" -> "John Doe")
         if (roomName && !roomName.includes('Room') && !roomName.includes('bridge') && !roomName.includes('Group')) {
           const cleanName = roomName.replace(/\s*\(WA\)\s*$/, '').trim();
           if (cleanName.length > 1 && !cleanName.match(/^\d+$/)) {
@@ -123,11 +125,9 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           }
         }
       }
-      
       return 'Contact';
     }
     
-    // Handle system users
     if (cleanSender.includes('whatsappbot')) {
       return 'WhatsApp Bot';
     }
@@ -152,6 +152,33 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
     }
   };
 
+  const getAIStatusInfo = () => {
+    if (aiStatus.hf) {
+      return {
+        icon: <Wifi className="h-4 w-4" />,
+        text: '🌐 Cloud AI',
+        description: 'Using Hugging Face models for advanced analysis',
+        color: 'bg-blue-100 text-blue-800'
+      };
+    } else if (aiStatus.local) {
+      return {
+        icon: <Brain className="h-4 w-4" />,
+        text: '🧠 Local AI',
+        description: 'Using local processing for privacy and speed',
+        color: 'bg-green-100 text-green-800'
+      };
+    } else {
+      return {
+        icon: <WifiOff className="h-4 w-4" />,
+        text: '⚠️ Limited AI',
+        description: 'Basic processing only - check API configuration',
+        color: 'bg-yellow-100 text-yellow-800'
+      };
+    }
+  };
+
+  const statusInfo = getAIStatusInfo();
+
   return (
     <div className="space-y-6">
       {/* AI Processing Controls */}
@@ -162,25 +189,13 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-2xl font-bold">AI Insights</h2>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  apiStatus === 'api' 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {apiStatus === 'api' 
-                    ? (process.env.NEXT_PUBLIC_OPENAI_API_KEY ? '🤖 GPT AI' : '🌐 Cloud AI') 
-                    : '🧠 Local AI'
-                  }
+                <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center space-x-1 ${statusInfo.color}`}>
+                  {statusInfo.icon}
+                  <span>{statusInfo.text}</span>
                 </span>
               </div>
               <p className="text-purple-100">
-                {apiStatus === 'api' 
-                  ? (process.env.NEXT_PUBLIC_OPENAI_API_KEY 
-                      ? 'Powered by GPT for maximum reliability and accuracy'
-                      : 'Powered by Hugging Face models for advanced analysis'
-                    )
-                  : 'Using local processing for privacy and speed'
-                }
+                {statusInfo.description}
               </p>
             </div>
           </div>
@@ -197,7 +212,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
         {processingStatus && (
           <div className="mt-4 bg-white/20 rounded-lg p-3">
             <p className="text-sm">{processingStatus}</p>
-            {processingStatus.includes('Indexing') && (
+            {loading && (
               <div className="mt-2 bg-white/10 rounded-full h-2">
                 <div className="bg-white h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
               </div>
@@ -304,7 +319,6 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
               <div className="p-6">
                 <div className="space-y-3">
                   {prioritizedMessages.slice(0, 10).map(message => {
-                    // For priority messages, use the room name as the contact name
                     const contactName = message.roomName.replace(/\s*\(WA\)\s*$/, '').trim();
                     
                     return (
@@ -352,6 +366,20 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
               </div>
             </div>
           )}
+
+          {/* Status Message when no results */}
+          {!loading && dailySummaries.length === 0 && prioritizedMessages.length === 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+              <Brain className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Ready for AI Analysis</h3>
+              <p className="text-gray-500 mb-4">
+                Click "Analyze Messages" to generate insights from your conversations.
+              </p>
+              <div className="text-sm text-gray-400">
+                {messages.length} messages available for analysis
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -363,7 +391,6 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
       {/* Knowledge Base Tab */}
       {activeAITab === 'knowledge' && (
         <div className="space-y-6">
-          {/* Knowledge Base */}
           {knowledgeBase.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100">
               <div className="p-6 border-b border-gray-100">
@@ -403,6 +430,16 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                   })}
                 </div>
               </div>
+            </div>
+          )}
+
+          {!loading && knowledgeBase.length === 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+              <MessageCircle className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Knowledge Base Empty</h3>
+              <p className="text-gray-500">
+                Run AI analysis to build your conversation knowledge base.
+              </p>
             </div>
           )}
         </div>
