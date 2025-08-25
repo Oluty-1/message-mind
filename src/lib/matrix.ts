@@ -82,11 +82,22 @@ export class MessageMindMatrix {
   }
 
   // Listen for new messages
-  onNewMessage(callback: (event: MatrixEvent) => void): void {
-    this.client.on('Room.timeline', (event, room, toStartOfTimeline) => {
+  onNewMessage(callback: (event: MatrixEvent) => void): () => void {
+    const wrapper = (event: any, room: any, toStartOfTimeline: any) => {
       if (toStartOfTimeline || event.getType() !== 'm.room.message') return;
-      callback(event);
-    });
+      callback(event as MatrixEvent);
+    };
+
+    // Use any cast to avoid strict typing issues with the matrix-js-sdk event names
+    (this.client as any).on('Room.timeline', wrapper);
+
+    return () => {
+      try {
+        (this.client as any).removeListener('Room.timeline', wrapper);
+      } catch (e) {
+        console.warn('Failed to remove Room.timeline listener', e);
+      }
+    };
   }
 
   // Get user info

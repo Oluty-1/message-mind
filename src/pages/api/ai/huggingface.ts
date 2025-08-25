@@ -1,97 +1,282 @@
-// pages/api/ai/huggingface.ts
-import { NextApiRequest, NextApiResponse } from 'next';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+import { NextRequest, NextResponse } from 'next/server';
+import { HfInference } from '@huggingface/inference';
+
+const hf = new HfInference(process.env.NEXT_PUBLIC_HF_API_KEY || process.env.HF_API_KEY);
+
+export async function POST(request: NextRequest) {
+  try {
+    const { model, inputs, task, parameters = {} } = await request.json();
+
+    if (!model || !inputs || !task) {
+      return NextResponse.json(
+        { error: 'Missing required parameters: model, inputs, task' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`🤖 HF API: ${task} with model ${model}`);
+
+    let result;
+
+    switch (task) {
+      case 'text-generation':
+        try {
+          result = await hf.textGeneration({
+            model,
+            inputs,
+            parameters: {
+              max_new_tokens: parameters.max_new_tokens || 50,
+              temperature: parameters.temperature || 0.7,
+              do_sample: parameters.do_sample !== false,
+              return_full_text: false,
+              ...parameters
+            }
+          });
+          
+          // Handle different response formats
+          if (typeof result === 'string') {
+            result = [{ generated_text: result }];
+          } else if (result && !Array.isArray(result)) {
+            result = [result];
+          }
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      case 'text-classification':
+        try {
+          result = await hf.textClassification({
+            model,
+            inputs
+          });
+          
+          if (!Array.isArray(result)) {
+            result = [result];
+          }
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      case 'summarization':
+        try {
+          result = await hf.summarization({
+            model,
+            inputs,
+            parameters: {
+              max_length: parameters.max_length || 100,
+              min_length: parameters.min_length || 20,
+              ...parameters
+            }
+          });
+          
+          if (!Array.isArray(result)) {
+            result = [result];
+          }
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      case 'feature-extraction':
+        try {
+          result = await hf.featureExtraction({
+            model,
+            inputs
+          });
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      default:
+        return NextResponse.json(
+          { error: `Unsupported task: ${task}` },
+          { status: 400 }
+        );
+    }
+
+    console.log(`✅ HF API: ${task} completed successfully`);
+    
+    return NextResponse.json({ 
+      result,
+      model,
+      task 
+    });
+
+  } catch (error: any) {
+    console.error(`❌ HF API Error:`, error);
+    
+    // Handle specific error types
+    if (error.message?.includes('not found') || error.message?.includes('unavailable')) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 404 }
+      );
+    }
+    
+    if (error.message?.includes('rate limit') || error.status === 429) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429 }
+      );
+    }
+    
+    if (error.message?.includes('quota') || error.status === 402) {
+      return NextResponse.json(
+        { error: 'API quota exceeded. Please check your Hugging Face plan.' },
+        { status: 402 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// For Pages Router (if you're using pages/api instead of app/api)
+export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { model, inputs, task, parameters = {} } = req.body;
-  const apiKey = process.env.HF_API_KEY; // Server-side only, no NEXT_PUBLIC_
-
-  if (!apiKey) {
-    return res.status(500).json({ error: 'Hugging Face API key not configured' });
-  }
-
-  if (!model || !inputs || !task) {
-    return res.status(400).json({ error: 'Missing required fields: model, inputs, task' });
-  }
-
   try {
-    const apiUrl = `https://api-inference.huggingface.co/models/${model}`;
-    
-    console.log(`🤖 Calling HF API: ${task} with model: ${model}`);
+    const { model, inputs, task, parameters = {} } = req.body;
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        inputs,
-        parameters,
-        options: {
-          wait_for_model: true,
-          use_cache: false
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`HF API Error (${response.status}):`, errorText);
-      
-      // Handle specific errors more gracefully
-      if (response.status === 503) {
-        return res.status(503).json({ 
-          error: 'Model is loading, please try again in a few moments',
-          retryAfter: 30 
-        });
-      }
-      
-      if (response.status === 404) {
-        return res.status(404).json({ 
-          error: `Model ${model} not found or unavailable`,
-          model
-        });
-      }
-      
-      if (response.status === 504) {
-        return res.status(504).json({ 
-          error: `Model ${model} timed out - please try again`,
-          model
-        });
-      }
-      
-      throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 200)}`);
+    if (!model || !inputs || !task) {
+      return res.status(400).json({ error: 'Missing required parameters: model, inputs, task' });
     }
 
-    const result = await response.json();
-    console.log(`✅ HF API Success for ${model}`);
+    console.log(`🤖 HF API: ${task} with model ${model}`);
 
-    res.status(200).json({ 
-      success: true, 
+    let result;
+
+    switch (task) {
+      case 'text-generation':
+        try {
+          result = await hf.textGeneration({
+            model,
+            inputs,
+            parameters: {
+              max_new_tokens: parameters.max_new_tokens || 50,
+              temperature: parameters.temperature || 0.7,
+              do_sample: parameters.do_sample !== false,
+              return_full_text: false,
+              ...parameters
+            }
+          });
+          
+          if (typeof result === 'string') {
+            result = [{ generated_text: result }];
+          } else if (result && !Array.isArray(result)) {
+            result = [result];
+          }
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      case 'text-classification':
+        try {
+          result = await hf.textClassification({
+            model,
+            inputs
+          });
+          
+          if (!Array.isArray(result)) {
+            result = [result];
+          }
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      case 'summarization':
+        try {
+          result = await hf.summarization({
+            model,
+            inputs,
+            parameters: {
+              max_length: parameters.max_length || 100,
+              min_length: parameters.min_length || 20,
+              ...parameters
+            }
+          });
+          
+          if (!Array.isArray(result)) {
+            result = [result];
+          }
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      case 'feature-extraction':
+        try {
+          result = await hf.featureExtraction({
+            model,
+            inputs
+          });
+        } catch (error: any) {
+          if (error.message?.includes('not found') || error.status === 404) {
+            throw new Error(`Model ${model} not found or unavailable`);
+          }
+          throw error;
+        }
+        break;
+
+      default:
+        return res.status(400).json({ error: `Unsupported task: ${task}` });
+    }
+
+    console.log(`✅ HF API: ${task} completed successfully`);
+    
+    return res.json({ 
       result,
-      task,
-      model 
+      model,
+      task 
     });
 
   } catch (error: any) {
-    console.error('❌ HF API proxy error:', error.message);
-    res.status(500).json({ 
-      error: error.message || 'Failed to call Hugging Face API',
-      task,
-      model 
-    });
-  }
-}
+    console.error(`❌ HF API Error:`, error);
+    
+    if (error.message?.includes('not found') || error.message?.includes('unavailable')) {
+      return res.status(404).json({ error: error.message });
+    }
+    
+    if (error.message?.includes('rate limit') || error.status === 429) {
+      return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+    }
+    
+    if (error.message?.includes('quota') || error.status === 402) {
+      return res.status(402).json({ error: 'API quota exceeded. Please check your Hugging Face plan.' });
+    }
 
-// Export config to handle larger payloads
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '1mb',
-    },
-  },
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
 }

@@ -33,19 +33,30 @@ interface MessageIntent {
 export class MessageMindAI {
   private hf?: HfInference;
   private gpt?: GPTAI;
+  private geminiApiKey?: string;
   private hfApiKey: string;
   private gptApiKey: string;
   private useApiRoute: boolean;
   private hfFailed: boolean = false;
 
   constructor(hfApiKey?: string, gptApiKey?: string) {
+    this.geminiApiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
     this.hfApiKey = hfApiKey || process.env.NEXT_PUBLIC_HF_API_KEY || '';
-    this.gptApiKey = '';
+    this.gptApiKey = gptApiKey || process.env.NEXT_PUBLIC_OPENAI_API_KEY || '';
     
     this.useApiRoute = true;
     
     console.log('🔍 Initializing Generative AI...');
-    console.log('HF Key present:', !!this.hfApiKey);
+    console.log('HF Key present:', !!this.hfApiKey, 'GPT Key present:', !!this.gptApiKey, 'Gemini Key present:', !!this.geminiApiKey);
+    
+    if (this.gptApiKey) {
+      try {
+        this.gpt = new GPTAI({ apiKey: this.gptApiKey });
+        console.log('✅ GPTAI initialized');
+      } catch (e) {
+        console.warn('⚠️ Failed to initialize GPTAI:', e);
+      }
+    }
     
     if (this.hfApiKey) {
       console.log('🤖 MessageMind AI: Using Generative AI for dynamic insights');
@@ -56,29 +67,41 @@ export class MessageMindAI {
 
   private async callHuggingFaceAPI(model: string, inputs: string, task: string, parameters: any = {}): Promise<any> {
     try {
+      // Add a timeout to avoid hanging requests and abort if taking too long
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10s
+
       const response = await fetch('/api/ai/huggingface', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model,
-          inputs,
-          task,
-          parameters
-        })
+        body: JSON.stringify({ model, inputs, task, parameters }),
+        signal: controller.signal
       });
 
+      clearTimeout(timeout);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || `API route error: ${response.status}`);
+        // Defensive parsing of error body
+        let errBody: any = {};
+        try { errBody = await response.json(); } catch (e) { errBody = { status: response.status, text: await response.text().catch(() => '') }; }
+        // Mark Hugging Face as failed so we stop issuing more calls
+        this.hfFailed = true;
+        throw new Error(errBody?.error || `API route error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await response.json().catch(err => {
+        this.hfFailed = true;
+        throw new Error('Invalid JSON from Hugging Face API route');
+      });
+
       return data.result;
 
     } catch (error: any) {
-      console.error(`❌ API route call failed for ${task}:`, error);
+      // Mark HF as failed to switch to local heuristics and avoid flooding failing endpoint
+      this.hfFailed = true;
+      console.error(`❌ API route call failed for ${task}:`, error?.message || error);
       throw error;
     }
   }
@@ -92,69 +115,135 @@ export class MessageMindAI {
 
       try {
         const conversationText = this.formatMessagesForAI(roomMessages);
-        
-        const [summary, sentiment, topics, insights, patterns, actionItems, priority] = await Promise.all([
-          this.generateSummary(conversationText),
-          this.analyzeSentiment(conversationText),
-          this.extractTopics(conversationText),
-          this.generateInsights(conversationText, roomMessages),
-          this.identifyPatterns(conversationText, roomMessages),
-          this.extractActionItems(conversationText),
-          this.calculatePriorityGenerative(conversationText, roomMessages)
-        ]);
-        
-        summaries.push({
-          date,
-          roomName,
-          messageCount: roomMessages.length,
-          participants: this.extractParticipants(roomMessages),
-          summary,
-          keyTopics: topics,
-          sentiment,
-          priority,
-          insights,
-          patterns,
-          actionItems
-        });
+
+        if (this.useApiRoute && (this.hfFailed || !this.hfApiKey) && !this.gpt) {
+          const summary = await this.generateFallbackSummary(roomMessages);
+          const sentiment = await this.generateSentimentAnalysis(conversationText);
+          const topics = await this.generateFallbackTopics(roomMessages);
+          const insights = this.generateContextualInsights(conversationText, roomMessages);
+          const patterns = this.analyzeConversationPatterns(roomMessages);
+          const actionItems = this.extractActionItemsHeuristic(conversationText);
+          const priority = this.calculatePriorityHeuristic(conversationText, roomMessages);
+
+          summaries.push({ date, roomName, messageCount: roomMessages.length, participants: this.extractParticipants(roomMessages), summary, keyTopics: topics, sentiment, priority, insights, patterns, actionItems });
+          continue;
+        }
+
+        let summary: string;
+        try { summary = await this.generateSummary(roomMessages as ProcessedMessage[]); } catch (err) { console.error('Summary generation failed, falling back to heuristic:', err); summary = await this.generateFallbackSummary(roomMessages); }
+
+        let sentiment: 'positive' | 'neutral' | 'negative';
+        try { sentiment = await this.analyzeSentiment(conversationText); } catch (err) { console.error('Sentiment analysis failed, using heuristic:', err); sentiment = this.generateSentimentAnalysis(conversationText); }
+
+        let topics: string[];
+        try { topics = await this.extractTopics(conversationText); } catch (err) { console.error('Topic extraction failed, using heuristic:', err); topics = await this.generateFallbackTopics(roomMessages); }
+
+        let insights: string[];
+        try { insights = await this.generateInsights(conversationText, roomMessages); } catch (err) { console.error('Insights generation failed, using heuristic:', err); insights = this.generateContextualInsights(conversationText, roomMessages); }
+
+        let patterns: string[];
+        try { patterns = await this.identifyPatterns(conversationText, roomMessages); } catch (err) { console.error('Pattern identification failed, using heuristic:', err); patterns = this.analyzeConversationPatterns(roomMessages); }
+
+        let actionItems: string[];
+        try { actionItems = await this.extractActionItems(conversationText); } catch (err) { console.error('Action item extraction failed, using heuristic:', err); actionItems = this.extractActionItemsHeuristic(conversationText); }
+
+        let priority: 'high' | 'medium' | 'low';
+        try { priority = await this.calculatePriorityGenerative(conversationText, roomMessages); } catch (err) { console.error('Priority calculation failed, using heuristic:', err); priority = this.calculatePriorityHeuristic(conversationText, roomMessages); }
+
+        summaries.push({ date, roomName, messageCount: roomMessages.length, participants: this.extractParticipants(roomMessages), summary, keyTopics: topics, sentiment, priority, insights, patterns, actionItems });
       } catch (error) {
         console.error(`Failed to process room ${roomName}:`, error);
-        
-        summaries.push({
-          date,
-          roomName,
-          messageCount: roomMessages.length,
-          participants: this.extractParticipants(roomMessages),
-          summary: await this.generateFallbackSummary(roomMessages),
-          keyTopics: await this.generateFallbackTopics(roomMessages),
-          sentiment: 'neutral',
-          priority: 'medium',
-          insights: [],
-          patterns: [],
-          actionItems: []
-        });
+        summaries.push({ date, roomName, messageCount: roomMessages.length, participants: this.extractParticipants(roomMessages), summary: await this.generateFallbackSummary(roomMessages), keyTopics: await this.generateFallbackTopics(roomMessages), sentiment: 'neutral', priority: 'medium', insights: [], patterns: [], actionItems: [] });
       }
     }
 
     return summaries.sort((a, b) => this.getPriorityWeight(b.priority) - this.getPriorityWeight(a.priority));
   }
 
-  private async generateSummary(conversationText: string): Promise<string> {
+  private async generateSummary(conversationOrMessages: string | ProcessedMessage[]): Promise<string> {
+    // If a message array is provided and GPT is available, prefer GPT for higher-quality summaries
+    try {
+      if (Array.isArray(conversationOrMessages) && this.gpt && this.gpt.isAvailable()) {
+        const msgs = (conversationOrMessages as ProcessedMessage[]).map(m => ({ sender: m.sender, content: m.content }));
+        try {
+          const gptSummary = await this.gpt.summarizeConversation(msgs);
+          if (gptSummary && gptSummary.length > 10) return this.cleanGeneratedText(gptSummary);
+        } catch (gptErr) {
+          console.warn('GPT summarization failed, falling back to HF/local:', (gptErr as any)?.message || gptErr);
+        }
+      }
+
+      // If input is string, try to parse into messages and attempt GPT if available
+      if (typeof conversationOrMessages === 'string' && this.gpt && this.gpt.isAvailable()) {
+        const lines = conversationOrMessages.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
+        const msgs = lines.map(line => {
+          const parts = line.split(':');
+          return { sender: parts[0].trim(), content: parts.slice(1).join(':').trim() };
+        });
+        if (msgs.length > 0) {
+          try {
+            const gptSummary = await this.gpt.summarizeConversation(msgs);
+            if (gptSummary && gptSummary.length > 10) return this.cleanGeneratedText(gptSummary);
+          } catch (gptErr) {
+            console.warn('GPT summarization (from string) failed, continuing to HF/local:', (gptErr as any)?.message || gptErr);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error while attempting GPT summarization:', err);
+    }
+
+    // Existing HF + heuristic behavior (unchanged)
     if (this.useApiRoute && this.hfApiKey && !this.hfFailed) {
       try {
         console.log('🤖 Generating dynamic summary with AI...');
         
-        const prompt = `Analyze this conversation and provide a natural summary of what was discussed:
+        // Try summarization models first
+        const summarizationModels = [
+          'facebook/bart-large-cnn',
+          'sshleifer/distilbart-cnn-12-6',
+          'google/pegasus-xsum'
+        ];
 
-${conversationText}
+        for (const model of summarizationModels) {
+          try {
+            console.log(`🔄 Trying summarization model: ${model}`);
+            
+            const result = await this.callHuggingFaceAPI(
+              model,
+              (typeof conversationOrMessages === 'string' ? conversationOrMessages : this.formatMessagesForAI(conversationOrMessages as ProcessedMessage[])).slice(0, 1000), // Limit input length
+              'summarization',
+              {
+                max_length: 80,
+                min_length: 20,
+                do_sample: false
+              }
+            );
+            
+            let summary = result[0]?.summary_text || '';
+            
+            if (summary && summary.length > 20 && summary.length < 200) {
+              return this.cleanGeneratedText(summary);
+            }
+          } catch (modelError) {
+            const errMsg = (modelError as any)?.message || String(modelError);
+            console.log(`❌ Summarization model failed:`, errMsg);
+            continue;
+          }
+        }
 
-Provide a single paragraph summary that captures the main points and context:`;
+        // Fallback to text generation with a simpler model
+        const conversationSnippet = (typeof conversationOrMessages === 'string' ? conversationOrMessages : this.formatMessagesForAI(conversationOrMessages as ProcessedMessage[])).slice(0, 500);
+        const prompt = `Summarize: ${conversationSnippet}
+
+Summary:`;
 
         const result = await this.callHuggingFaceAPI(
-          'microsoft/DialoGPT-medium',
+          'gpt2',
           prompt,
           'text-generation',
           {
-            max_new_tokens: 100,
+            max_new_tokens: 50,
             temperature: 0.3,
             do_sample: true,
             pad_token_id: 50256
@@ -178,7 +267,7 @@ Provide a single paragraph summary that captures the main points and context:`;
       }
     }
 
-    return this.generateNaturalLanguageSummary(conversationText);
+    return this.generateNaturalLanguageSummary(typeof conversationOrMessages === 'string' ? conversationOrMessages : this.formatMessagesForAI(conversationOrMessages as ProcessedMessage[]));
   }
 
   private async generateInsights(conversationText: string, messages: ProcessedMessage[]): Promise<string[]> {
@@ -186,26 +275,27 @@ Provide a single paragraph summary that captures the main points and context:`;
       try {
         console.log('🧠 Generating dynamic insights...');
         
-        const prompt = `Based on this conversation, provide 3 key insights about the communication patterns, relationships, or important information:
+        const prompt = `Based on this conversation, list 3 key insights:
 
-${conversationText}
+${conversationText.slice(0, 800)}
 
-Key insights:
+Insights:
 1.`;
 
         const result = await this.callHuggingFaceAPI(
-          'microsoft/DialoGPT-medium',
+          'gpt2',
           prompt,
           'text-generation',
           {
-            max_new_tokens: 150,
+            max_new_tokens: 100,
             temperature: 0.5,
-            do_sample: true
+            do_sample: true,
+            pad_token_id: 50256
           }
         );
 
         const generated = result[0]?.generated_text || '';
-        const insights = this.extractListFromGenerated(generated, 'Key insights:');
+        const insights = this.extractListFromGenerated(generated, 'Insights:');
         
         if (insights.length > 0) {
           return insights.slice(0, 3);
@@ -224,26 +314,27 @@ Key insights:
       try {
         console.log('🔍 Identifying communication patterns...');
         
-        const prompt = `Analyze this conversation for communication patterns and behaviors:
+        const prompt = `Analyze communication patterns in this conversation:
 
-${conversationText}
+${conversationText.slice(0, 800)}
 
-Communication patterns observed:
+Patterns:
 -`;
 
         const result = await this.callHuggingFaceAPI(
-          'microsoft/DialoGPT-medium',
+          'gpt2',
           prompt,
           'text-generation',
           {
-            max_new_tokens: 120,
+            max_new_tokens: 80,
             temperature: 0.4,
-            do_sample: true
+            do_sample: true,
+            pad_token_id: 50256
           }
         );
 
         const generated = result[0]?.generated_text || '';
-        const patterns = this.extractListFromGenerated(generated, 'Communication patterns observed:');
+        const patterns = this.extractListFromGenerated(generated, 'Patterns:');
         
         if (patterns.length > 0) {
           return patterns.slice(0, 3);
@@ -262,26 +353,27 @@ Communication patterns observed:
       try {
         console.log('📋 Extracting action items...');
         
-        const prompt = `Extract any action items, requests, or follow-ups from this conversation:
+        const prompt = `Extract action items from this conversation:
 
-${conversationText}
+${conversationText.slice(0, 800)}
 
-Action items and follow-ups:
+Action items:
 -`;
 
         const result = await this.callHuggingFaceAPI(
-          'microsoft/DialoGPT-medium',
+          'gpt2',
           prompt,
           'text-generation',
           {
-            max_new_tokens: 100,
+            max_new_tokens: 60,
             temperature: 0.2,
-            do_sample: true
+            do_sample: true,
+            pad_token_id: 50256
           }
         );
 
         const generated = result[0]?.generated_text || '';
-        const actionItems = this.extractListFromGenerated(generated, 'Action items and follow-ups:');
+        const actionItems = this.extractListFromGenerated(generated, 'Action items:');
         
         return actionItems.slice(0, 3);
         
@@ -296,20 +388,21 @@ Action items and follow-ups:
   private async calculatePriorityGenerative(conversationText: string, messages: ProcessedMessage[]): Promise<'high' | 'medium' | 'low'> {
     if (this.useApiRoute && this.hfApiKey && !this.hfFailed) {
       try {
-        const prompt = `Analyze this conversation and determine its priority level (high/medium/low) based on urgency, importance, and content:
+        const prompt = `Rate this conversation priority (high/medium/low):
 
-${conversationText}
+${conversationText.slice(0, 500)}
 
-Priority assessment: This conversation has`;
+Priority:`;
 
         const result = await this.callHuggingFaceAPI(
-          'microsoft/DialoGPT-medium',
+          'gpt2',
           prompt,
           'text-generation',
           {
-            max_new_tokens: 30,
+            max_new_tokens: 10,
             temperature: 0.1,
-            do_sample: false
+            do_sample: false,
+            pad_token_id: 50256
           }
         );
 
@@ -372,26 +465,27 @@ Priority assessment: This conversation has`;
   private async extractTopics(text: string): Promise<string[]> {
     if (this.useApiRoute && this.hfApiKey && !this.hfFailed) {
       try {
-        const prompt = `Extract the main topics discussed in this conversation:
+        const prompt = `Extract main topics from this conversation:
 
-${text}
+${text.slice(0, 800)}
 
-Main topics:
+Topics:
 -`;
 
         const result = await this.callHuggingFaceAPI(
-          'microsoft/DialoGPT-medium',
+          'gpt2',
           prompt,
           'text-generation',
           {
-            max_new_tokens: 80,
+            max_new_tokens: 60,
             temperature: 0.3,
-            do_sample: true
+            do_sample: true,
+            pad_token_id: 50256
           }
         );
 
         const generated = result[0]?.generated_text || '';
-        const topics = this.extractListFromGenerated(generated, 'Main topics:');
+        const topics = this.extractListFromGenerated(generated, 'Topics:');
         
         return topics.slice(0, 5);
         
@@ -407,6 +501,7 @@ Main topics:
     const items: string[] = [];
     const lines = generated.split('\n');
     let foundMarker = false;
+    let itemCount = 0;
     
     for (const line of lines) {
       const trimmed = line.trim();
@@ -414,25 +509,37 @@ Main topics:
       if (trimmed.includes(marker)) {
         foundMarker = true;
         const afterMarker = trimmed.substring(trimmed.indexOf(marker) + marker.length).trim();
-        if (afterMarker && afterMarker !== '-') {
+        if (afterMarker && afterMarker !== '-' && afterMarker.length > 3) {
           items.push(this.cleanGeneratedText(afterMarker));
+          itemCount++;
         }
         continue;
       }
       
-      if (foundMarker) {
-        if (trimmed.startsWith('-') || trimmed.match(/^\d+\./)) {
-          const cleaned = trimmed.replace(/^[-\d.]\s*/, '').trim();
-          if (cleaned && cleaned.length > 3) {
-            items.push(this.cleanGeneratedText(cleaned));
+      if (foundMarker && itemCount < 3) {
+        if (trimmed.startsWith('-') || trimmed.match(/^\d+\./) || trimmed.length > 10) {
+          let cleaned = trimmed.replace(/^[-\d.]\s*/, '').trim();
+          
+          // Stop at certain patterns that indicate end of list
+          if (cleaned.includes('Based on') || cleaned.includes('The conversation') || 
+              cleaned.includes('Overall') || cleaned.includes('In summary')) {
+            break;
           }
-        } else if (trimmed.length > 0 && !trimmed.includes('Key insights:') && !trimmed.includes('Communication patterns:')) {
-          break;
+          
+          if (cleaned && cleaned.length > 5 && cleaned.length < 150) {
+            items.push(this.cleanGeneratedText(cleaned));
+            itemCount++;
+          }
         }
+      }
+      
+      // Stop if we've found enough items or hit obvious end markers
+      if (itemCount >= 3 || trimmed.includes('###') || trimmed.includes('---')) {
+        break;
       }
     }
     
-    return items.filter(item => item.length > 5 && item.length < 200);
+    return items.filter(item => item.length > 8 && item.length < 150);
   }
 
   private cleanGeneratedText(text: string): string {

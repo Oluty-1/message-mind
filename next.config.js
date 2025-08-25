@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode:true,
     // Allow connections to your Matrix server
     async rewrites() {
       return [

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MessageMindMatrix, extractMessageContent, getMessageSender, getMessageTimestamp, isWhatsAppMessage } from '@/lib/matrix';
 import { MatrixEvent, Room } from 'matrix-js-sdk';
 import { MessageSquare, Users, Bot, Zap, Calendar, Search, LogOut, Smartphone, Filter, Brain } from 'lucide-react';
@@ -101,17 +101,16 @@ export default function Dashboard({ client }: DashboardProps) {
 
   // Listen for new messages - DEDUPLICATE
   useEffect(() => {
+    // Subscribe once to new messages and return an unsubscribe function to avoid duplicate listeners
+    let unsub: (() => void) | null = null;
+
     const handleNewMessage = (event: MatrixEvent) => {
       const content = extractMessageContent(event);
       const messageId = event.getId();
-      
+
       if (!messageId || !content.trim() || content.startsWith('!') || content.length <= 1) {
         return;
       }
-
-      // Check if we already have this message
-      const exists = messages.some(msg => msg.id === messageId);
-      if (exists) return;
 
       const room = client.getRooms().find(r => r.roomId === event.getRoomId());
       if (!room) return;
@@ -126,11 +125,19 @@ export default function Dashboard({ client }: DashboardProps) {
         isWhatsApp: isWhatsAppMessage(event) || room.name?.includes('(WA)') || false
       };
 
-      setMessages(prev => [...prev, newMessage]);
+      // Use functional update to safely deduplicate against the latest state
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === messageId)) return prev;
+        return [...prev, newMessage];
+      });
     };
 
-    client.onNewMessage(handleNewMessage);
-  }, [client, messages]);
+    unsub = client.onNewMessage(handleNewMessage);
+
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [client]);
 
   const getRoomDisplayName = (room: Room): string => {
     const name = room.name || '';
@@ -156,7 +163,7 @@ export default function Dashboard({ client }: DashboardProps) {
   };
 
   // Filter messages
-  const filteredMessages = messages.filter(msg => {
+  const filteredMessages = useMemo(()=>messages.filter(msg => {
     const matchesSearch = !searchTerm || 
       msg.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
       msg.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -165,17 +172,20 @@ export default function Dashboard({ client }: DashboardProps) {
     const matchesFilter = !showWhatsAppOnly || msg.isWhatsApp;
     
     return matchesSearch && matchesFilter;
-  });
+  }), [messages]);
 
   // Get messages for selected room or all messages
-  const getDisplayMessages = () => {
+  const getDisplayMessages = useCallback(() => {
     if (selectedRoom) {
       return filteredMessages.filter(msg => msg.roomId === selectedRoom);
     }
     return filteredMessages;
-  };
+  }, [filteredMessages, selectedRoom]);
 
-  const displayMessages = getDisplayMessages();
+  const displayMessages = useMemo(getDisplayMessages, [filteredMessages, selectedRoom]);
+
+  const slicedDisplay = useMemo(()=>displayMessages.slice(-100), [displayMessages])
+  
   const whatsappMessages = messages.filter(msg => msg.isWhatsApp);
   const todayMessages = messages.filter(msg => {
     const today = new Date();
@@ -307,6 +317,7 @@ export default function Dashboard({ client }: DashboardProps) {
       </div>
     );
   }
+  
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -524,7 +535,7 @@ export default function Dashboard({ client }: DashboardProps) {
                 </div>
               </div>
               <div className="max-h-96 overflow-y-auto">
-                {displayMessages.slice(-100).map(message => (
+                {slicedDisplay.map(message => (
                   <div key={message.id} className="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
