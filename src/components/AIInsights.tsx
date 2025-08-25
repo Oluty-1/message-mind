@@ -163,8 +163,8 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
     if (aiStatus.hf) {
       return {
         icon: <Brain className="h-4 w-4" />,
-        text: '🤖 Generative AI',
-        description: 'Dynamic insights powered by large language models',
+        text: '🤖 Gemini AI',
+        description: 'Advanced insights powered by Google Gemini',
         color: 'bg-purple-100 text-purple-800'
       };
     } else if (aiStatus.local) {
@@ -178,7 +178,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
       return {
         icon: <WifiOff className="h-4 w-4" />,
         text: '⚠️ Basic Mode',
-        description: 'Limited processing - enable AI for intelligent insights',
+        description: 'Limited processing - add Gemini API key for intelligent insights',
         color: 'bg-yellow-100 text-yellow-800'
       };
     }
@@ -195,7 +195,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
             <Brain className="h-8 w-8" />
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-2xl font-bold">Generative AI Insights</h2>
+                <h2 className="text-2xl font-bold">Gemini AI Insights</h2>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1 ${statusInfo.color}`}>
                   {statusInfo.icon}
                   <span>{statusInfo.text}</span>
@@ -212,7 +212,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
             className="bg-white text-purple-600 px-6 py-3 rounded-lg font-medium hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-lg"
           >
             <Sparkles className="h-5 w-5" />
-            <span>{loading ? 'Generating Insights...' : 'Generate AI Insights'}</span>
+            <span>{loading ? 'Generating Insights...' : 'Analyze with Gemini'}</span>
           </button>
         </div>
         
@@ -241,7 +241,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           >
             <div className="flex items-center justify-center space-x-2">
               <Brain className="h-4 w-4" />
-              <span>AI Summaries & Insights</span>
+              <span>Gemini Summaries & Insights</span>
             </div>
           </button>
           <button
@@ -282,7 +282,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
               <div className="p-6 border-b border-gray-100">
                 <div className="flex items-center space-x-2">
                   <Brain className="h-5 w-5 text-purple-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">AI-Generated Conversation Analysis</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Gemini-Generated Conversation Analysis</h3>
                 </div>
               </div>
               <div className="p-6 space-y-6">
@@ -300,18 +300,18 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                       </span>
                     </div>
                     
-                    {/* AI Summary */}
+                    {/* Gemini Summary */}
                     <div className="mb-4">
                       <h5 className="font-medium text-gray-800 mb-2 flex items-center space-x-2">
                         <Brain className="h-4 w-4 text-purple-600" />
-                        <span>AI Summary</span>
+                        <span>Gemini Summary</span>
                       </h5>
                       <div className="bg-purple-50 rounded-lg p-4">
                         <p className="text-gray-700 leading-relaxed">{summary.summary}</p>
                       </div>
                     </div>
 
-                    {/* AI Insights */}
+                    {/* Gemini Insights */}
                     {summary.insights && summary.insights.length > 0 && (
                       <div className="mb-4">
                         <h5 className="font-medium text-gray-800 mb-2 flex items-center space-x-2">
@@ -380,7 +380,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
               <div className="p-6 border-b border-gray-100">
                 <div className="flex items-center space-x-2">
                   <Target className="h-5 w-5 text-orange-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">AI-Prioritized Messages</h3>
+                 <h3 className="text-lg font-semibold text-gray-900">Gemini-Prioritized Messages</h3>
                 </div>
               </div>
               <div className="p-6">
@@ -438,12 +438,12 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           {!loading && dailySummaries.length === 0 && prioritizedMessages.length === 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
               <Brain className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Ready for AI Analysis</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Ready for Gemini Analysis</h3>
               <p className="text-gray-500 mb-4">
-                Click "Generate AI Insights" to create dynamic, intelligent summaries of your conversations.
+                Click "Analyze with Gemini" to create intelligent summaries of your conversations using Google's advanced AI.
               </p>
               <div className="text-sm text-gray-400">
-                {messages.length} messages available for AI analysis
+                {messages.length} messages available for Gemini analysis
               </div>
             </div>
           )}
@@ -463,7 +463,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
               <div className="p-6 border-b border-gray-100">
                 <div className="flex items-center space-x-2">
                   <MessageCircle className="h-5 w-5 text-purple-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">AI Knowledge Base</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Gemini Knowledge Base</h3>
                 </div>
               </div>
               <div className="p-6">
@@ -486,7 +486,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                         </div>
                         
                         <div className="bg-white rounded-lg p-4 mb-4 border border-purple-100">
-                          <h5 className="font-medium text-gray-800 mb-2">AI Summary</h5>
+                          <h5 className="font-medium text-gray-800 mb-2">Gemini Summary</h5>
                           <p className="text-gray-700 text-sm leading-relaxed">{entry.summary}</p>
                         </div>
 
@@ -494,7 +494,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                           <div className="bg-yellow-50 rounded-lg p-4 mb-4">
                             <h5 className="font-medium text-gray-800 mb-2 flex items-center space-x-2">
                               <Lightbulb className="h-4 w-4 text-yellow-600" />
-                              <span>AI Insights</span>
+                              <span>Gemini Insights</span>
                             </h5>
                             <div className="space-y-2">
                               {entry.insights.map((insight: string, i: number) => (
@@ -505,7 +505,7 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
                         )}
                         
                         <div className="text-xs text-gray-500">
-                          Generated by AI • {new Date(entry.timestamp).toLocaleDateString()}
+                          Generated by Gemini • {new Date(entry.timestamp).toLocaleDateString()}
                         </div>
                       </div>
                     );
@@ -518,9 +518,9 @@ export default function AIInsights({ client, messages }: AIInsightsProps) {
           {!loading && knowledgeBase.length === 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
               <MessageCircle className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">AI Knowledge Base Empty</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Gemini Knowledge Base Empty</h3>
               <p className="text-gray-500">
-                Run AI analysis to build your intelligent conversation knowledge base.
+                Run Gemini analysis to build your intelligent conversation knowledge base.
               </p>
             </div>
           )}

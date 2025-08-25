@@ -16,7 +16,10 @@ touch .env.local
 #### **2. Add your API keys to `.env.local`:**
 
 ```env
-# AI API Keys (GPT takes priority, Hugging Face as fallback)
+# AI API Keys (Gemini takes priority, GPT and Hugging Face as fallback)
+# Get your Gemini API key from: https://makersuite.google.com/app/apikey
+NEXT_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
+
 # Get your OpenAI API key from: https://platform.openai.com/api-keys
 NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key_here
 
@@ -34,6 +37,12 @@ NEXT_PUBLIC_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
 
 #### **3. Get API Keys:**
+
+**Google Gemini API Key (Recommended for best performance):**
+1. Go to https://makersuite.google.com/app/apikey
+2. Sign in with your Google account
+3. Create a new API key
+4. Copy the key and replace `your_gemini_api_key_here`
 
 **OpenAI API Key (Recommended for reliability):**
 1. Go to https://platform.openai.com/api-keys
@@ -98,9 +107,11 @@ docker-compose down && docker-compose up
 ## 🚀 **Expected Results After Setup**
 
 ### **✅ AI Summaries:**
-- Should show actual conversation summaries
+- Should show actual conversation summaries powered by Gemini
 - Should include sentiment analysis (😊, 😐, 😔)
 - Should show priority levels (high, medium, low)
+- Should include AI-generated insights and patterns
+- Should extract action items automatically
 
 ### **✅ Semantic Search:**
 - Should find messages when searching
@@ -118,8 +129,15 @@ docker-compose down && docker-compose up
 
 1. **Check environment file location** - should be in project root
 2. **Restart the server** - environment changes require restart
-3. **Check API key format** - should be a long string without spaces
+3. **Check API key format** - Gemini keys start with "AIza", should be a long string without spaces
 4. **Verify API key is valid** - test in browser console
+
+### **If Gemini API fails:**
+
+1. **Check your Google Cloud billing** - Gemini API requires billing to be enabled
+2. **Verify API key permissions** - ensure the key has Generative AI permissions
+3. **Check rate limits** - Gemini has usage quotas that may be exceeded
+4. **Try the fallback** - the app will automatically use GPT or Hugging Face if Gemini fails
 
 ### **If search still doesn't work:**
 
@@ -142,7 +160,7 @@ docker-compose up
 If you're still having issues:
 
 1. **Check the browser console** for error messages
-2. **Verify your API keys** are working
-3. **Try with just one API key** (OpenAI or Hugging Face)
+2. **Verify your API keys** are working (try Gemini first)
+3. **Try with just one API key** (Gemini, OpenAI, or Hugging Face)
 4. **Check the network tab** for API call failures
 

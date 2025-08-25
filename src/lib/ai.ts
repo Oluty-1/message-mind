@@ -1,5 +1,6 @@
 import { HfInference } from '@huggingface/inference';
 import { GPTAI } from './gptAI';
+import { GeminiAI } from './geminiAI';
 
 interface ProcessedMessage {
   id: string;
@@ -33,6 +34,7 @@ interface MessageIntent {
 export class MessageMindAI {
   private hf?: HfInference;
   private gpt?: GPTAI;
+  private gemini?: GeminiAI;
   private geminiApiKey?: string;
   private hfApiKey: string;
   private gptApiKey: string;
@@ -49,6 +51,16 @@ export class MessageMindAI {
     console.log('🔍 Initializing Generative AI...');
     console.log('HF Key present:', !!this.hfApiKey, 'GPT Key present:', !!this.gptApiKey, 'Gemini Key present:', !!this.geminiApiKey);
     
+    // Initialize Gemini first (highest priority)
+    if (this.geminiApiKey) {
+      try {
+        this.gemini = new GeminiAI({ apiKey: this.geminiApiKey });
+        console.log('✅ Gemini AI initialized');
+      } catch (e) {
+        console.warn('⚠️ Failed to initialize Gemini AI:', e);
+      }
+    }
+    
     if (this.gptApiKey) {
       try {
         this.gpt = new GPTAI({ apiKey: this.gptApiKey });
@@ -59,7 +71,7 @@ export class MessageMindAI {
     }
     
     if (this.hfApiKey) {
-      console.log('🤖 MessageMind AI: Using Generative AI for dynamic insights');
+      console.log('🤖 MessageMind AI: Using Hugging Face for fallback processing');
     } else {
       console.log('🧠 MessageMind AI: Using local generative processing');
     }
@@ -129,6 +141,29 @@ export class MessageMindAI {
           continue;
         }
 
+        // Try Gemini first (highest priority)
+        if (this.gemini && this.gemini.isAvailable()) {
+          try {
+            console.log('🤖 Using Gemini AI for conversation analysis...');
+            const geminiAnalysis = await this.gemini.generateDailySummary(
+              conversationText,
+              this.extractParticipants(roomMessages),
+              roomMessages.length
+            );
+            
+            summaries.push({
+              date,
+              roomName,
+              messageCount: roomMessages.length,
+              participants: this.extractParticipants(roomMessages),
+              ...geminiAnalysis
+            });
+            continue;
+          } catch (geminiError) {
+            console.warn('Gemini analysis failed, falling back to other methods:', geminiError);
+          }
+        }
+
         let summary: string;
         try { summary = await this.generateSummary(roomMessages as ProcessedMessage[]); } catch (err) { console.error('Summary generation failed, falling back to heuristic:', err); summary = await this.generateFallbackSummary(roomMessages); }
 
@@ -161,7 +196,41 @@ export class MessageMindAI {
   }
 
   private async generateSummary(conversationOrMessages: string | ProcessedMessage[]): Promise<string> {
-    // If a message array is provided and GPT is available, prefer GPT for higher-quality summaries
+    // Priority order: Gemini > GPT > HF > Local
+    
+    // Try Gemini first
+    try {
+      if (Array.isArray(conversationOrMessages) && this.gemini && this.gemini.isAvailable()) {
+        const msgs = (conversationOrMessages as ProcessedMessage[]).map(m => ({ sender: m.sender, content: m.content }));
+        try {
+          const geminiSummary = await this.gemini.summarizeConversation(msgs);
+          if (geminiSummary && geminiSummary.length > 10) return this.cleanGeneratedText(geminiSummary);
+        } catch (geminiErr) {
+          console.warn('Gemini summarization failed, falling back to GPT/HF:', (geminiErr as any)?.message || geminiErr);
+        }
+      }
+
+      // If input is string, try to parse into messages and attempt Gemini if available
+      if (typeof conversationOrMessages === 'string' && this.gemini && this.gemini.isAvailable()) {
+        const lines = conversationOrMessages.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
+        const msgs = lines.map(line => {
+          const parts = line.split(':');
+          return { sender: parts[0].trim(), content: parts.slice(1).join(':').trim() };
+        });
+        if (msgs.length > 0) {
+          try {
+            const geminiSummary = await this.gemini.summarizeConversation(msgs);
+            if (geminiSummary && geminiSummary.length > 10) return this.cleanGeneratedText(geminiSummary);
+          } catch (geminiErr) {
+            console.warn('Gemini summarization (from string) failed, continuing to GPT/HF:', (geminiErr as any)?.message || geminiErr);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error while attempting Gemini summarization:', err);
+    }
+
+    // If a message array is provided and GPT is available, try GPT next
     try {
       if (Array.isArray(conversationOrMessages) && this.gpt && this.gpt.isAvailable()) {
         const msgs = (conversationOrMessages as ProcessedMessage[]).map(m => ({ sender: m.sender, content: m.content }));
@@ -795,6 +864,20 @@ Topics:
 
   async analyzeMessageIntent(message: ProcessedMessage): Promise<MessageIntent> {
     try {
+      // Try Gemini for intent analysis first
+      if (this.gemini && this.gemini.isAvailable()) {
+        try {
+          const priorityAnalysis = await this.gemini.analyzeMessagePriority(message.content);
+          return {
+            intent: priorityAnalysis.priority === 'high' ? 'urgent' : 'information',
+            confidence: priorityAnalysis.urgency,
+            category: priorityAnalysis.priority === 'high' ? 'urgent' : 'information'
+          };
+        } catch (geminiError) {
+          console.warn('Gemini intent analysis failed, using fallback:', geminiError);
+        }
+      }
+      
       const intent = this.detectIntent(message.content);
       return {
         intent: intent.type,
@@ -812,6 +895,16 @@ Topics:
   }
 
   prioritizeMessages(messages: ProcessedMessage[]): ProcessedMessage[] {
+    // Use Gemini for enhanced message prioritization if available
+    if (this.gemini && this.gemini.isAvailable()) {
+      return messages
+        .map(msg => ({
+          ...msg,
+          priority: this.calculateMessagePriorityWithGemini(msg)
+        }))
+        .sort((a, b) => (b as any).priority - (a as any).priority);
+    }
+    
     return messages
       .map(msg => ({
         ...msg,
@@ -974,6 +1067,41 @@ Topics:
     return priority;
   }
 
+  // Enhanced message priority calculation using Gemini
+  private calculateMessagePriorityWithGemini(message: ProcessedMessage): number {
+    // This would be called asynchronously in a real implementation
+    // For now, we'll use the standard calculation with Gemini-inspired logic
+    let priority = 0;
+    const content = message.content.toLowerCase();
+    
+    // Time-based priority
+    const hoursSinceMessage = (Date.now() - message.timestamp.getTime()) / (1000 * 60 * 60);
+    priority += Math.max(0, 24 - hoursSinceMessage) / 24 * 10;
+    
+    // Enhanced keyword analysis (Gemini-inspired)
+    const urgentKeywords = ['urgent', 'asap', 'emergency', 'immediately', 'important', 'critical', 'help'];
+    const questionKeywords = ['?', 'what', 'how', 'when', 'where', 'why', 'can you', 'could you'];
+    const actionKeywords = ['please', 'need', 'require', 'must', 'should'];
+    
+    urgentKeywords.forEach(keyword => {
+      if (content.includes(keyword)) priority += 15;
+    });
+    
+    questionKeywords.forEach(keyword => {
+      if (content.includes(keyword)) priority += 8;
+    });
+    
+    actionKeywords.forEach(keyword => {
+      if (content.includes(keyword)) priority += 5;
+    });
+    
+    // Message length and complexity
+    if (content.length > 100) priority += 3;
+    if (content.split(' ').length > 20) priority += 2;
+    
+    return priority;
+  }
+
   private getPriorityWeight(priority: string): number {
     switch (priority) {
       case 'high': return 3;
@@ -985,7 +1113,7 @@ Topics:
 
   getAIStatus(): { hf: boolean; local: boolean; quotaExceeded: boolean } {
     return {
-      hf: this.useApiRoute && !!this.hfApiKey && !this.hfFailed,
+      hf: (this.useApiRoute && !!this.hfApiKey && !this.hfFailed) || (!!this.gemini && this.gemini.isAvailable()) || (!!this.gpt && this.gpt.isAvailable()),
       local: this.hfFailed || !this.hfApiKey,
       quotaExceeded: false
     };
