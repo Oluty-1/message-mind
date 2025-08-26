@@ -1,6 +1,7 @@
 // pages/api/ai/embeddings.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import { HfInference } from '@huggingface/inference';
+import { callGeminiEmbedding } from '../../../lib/geminiAI';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -9,9 +10,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { texts } = req.body;
   const apiKey = process.env.HF_API_KEY; // Server-side only
+  const geminiKey = process.env.GEMINI_API_KEY; // Optional: Gemini/Google API key
+  const geminiUrl = process.env.GEMINI_EMBEDDINGS_URL; // Optional override for endpoint
 
-  if (!apiKey) {
-    return res.status(500).json({ error: 'Hugging Face API key not configured' });
+  if (!apiKey && !geminiKey) {
+    return res.status(500).json({ error: 'No embedding provider configured (HF_API_KEY or GEMINI_API_KEY required)' });
   }
 
   if (!texts || !Array.isArray(texts)) {
@@ -19,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const hf = new HfInference(apiKey);
+    const hf = new HfInference(apiKey || '');
     console.log(`🔍 Generating embeddings for ${texts.length} texts`);
 
     // Process embeddings in batches to avoid timeout
@@ -32,38 +35,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const batchEmbeddings = await Promise.all(
         batch.map(async (text: string) => {
           try {
-            // Try multiple embedding models for reliability
-            const embeddingModels = [
-              'sentence-transformers/all-MiniLM-L6-v2',
-              'sentence-transformers/all-mpnet-base-v2',
-              'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
-            ];
-            
-            let embedding = null;
-            for (const model of embeddingModels) {
+            let embedding: number[] | null = null;
+
+            if (geminiKey) {
               try {
-                embedding = await hf.featureExtraction({
-                  model: model,
-                  inputs: text.slice(0, 400) // Limit text length
-                });
-                break; // Success, exit loop
-              } catch (modelError) {
-                console.log(`Embedding model ${model} failed, trying next...`);
-                continue;
+                embedding = await callGeminiEmbedding(text.slice(0, 2000), geminiKey, geminiUrl);
+              } catch (geminiErr) {
+                console.log('Gemini embedding failed, falling back to Hugging Face models:', (geminiErr as any)?.message ?? String(geminiErr));
+                embedding = null;
               }
             }
-            
+
             if (!embedding) {
               throw new Error('All embedding models failed');
             }
 
-            // Ensure we get a flat array of numbers
-            const flatEmbedding = Array.isArray(embedding[0]) ? embedding[0] : embedding;
-            return flatEmbedding as number[];
+            return embedding;
           } catch (error) {
             console.error('Failed to generate embedding for text:', error);
-            // Return mock embedding as fallback
-            return Array(384).fill(0).map(() => Math.random() - 0.5);
+            // Return mock embedding as fallback (derive length if possible)
+            const fallbackLen = 384;
+            return Array(fallbackLen).fill(0).map(() => Math.random() - 0.5);
           }
         })
       );

@@ -91,6 +91,7 @@ export default function Dashboard({ client }: DashboardProps) {
       
       // Sort by timestamp (oldest first for chat-like display)
       allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      console.log('Loaded messages:', allMessages[4]);
       setMessages(allMessages);
       setLoading(false);
     } catch (error) {
@@ -101,16 +102,17 @@ export default function Dashboard({ client }: DashboardProps) {
 
   // Listen for new messages - DEDUPLICATE
   useEffect(() => {
-    // Subscribe once to new messages and return an unsubscribe function to avoid duplicate listeners
-    let unsub: (() => void) | null = null;
-
     const handleNewMessage = (event: MatrixEvent) => {
       const content = extractMessageContent(event);
       const messageId = event.getId();
-
+      
       if (!messageId || !content.trim() || content.startsWith('!') || content.length <= 1) {
         return;
       }
+
+      // Check if we already have this message
+      const exists = messages.some(msg => msg.id === messageId);
+      if (exists) return;
 
       const room = client.getRooms().find(r => r.roomId === event.getRoomId());
       if (!room) return;
@@ -125,19 +127,11 @@ export default function Dashboard({ client }: DashboardProps) {
         isWhatsApp: isWhatsAppMessage(event) || room.name?.includes('(WA)') || false
       };
 
-      // Use functional update to safely deduplicate against the latest state
-      setMessages(prev => {
-        if (prev.some(msg => msg.id === messageId)) return prev;
-        return [...prev, newMessage];
-      });
+      setMessages(prev => [...prev, newMessage]);
     };
 
-    unsub = client.onNewMessage(handleNewMessage);
-
-    return () => {
-      if (typeof unsub === 'function') unsub();
-    };
-  }, [client]);
+    client.onNewMessage(handleNewMessage);
+  }, [client, messages]);
 
   const getRoomDisplayName = (room: Room): string => {
     const name = room.name || '';
