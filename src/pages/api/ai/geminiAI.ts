@@ -1,7 +1,7 @@
 // Google Gemini AI Integration for MessageMind
 interface GeminiConfig {
   apiKey?: string;
-  model?: 'gemini-2.0-flash';
+  model?: 'gemini-pro' | 'gemini-pro-vision';
   maxTokens?: number;
   temperature?: number;
 }
@@ -18,13 +18,12 @@ interface GeminiResponse {
 export class GeminiAI {
   private apiKey: string;
   private config: GeminiConfig;
-  // https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
 
   constructor(config?: GeminiConfig) {
     this.apiKey = config?.apiKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
     this.config = {
-      model: 'gemini-2.0-flash',
+      model: 'gemini-pro',
       maxTokens: 512,
       temperature: 0.2,
       ...config
@@ -47,23 +46,7 @@ export class GeminiAI {
         .map(msg => `${msg.sender}: ${msg.content}`)
         .join('\n');
 
-      const prompt = `You are a concise assistant. Analyze the conversation below and output exactly one valid JSON object only — no explanatory text, no markdown, no code fences.
-
-Schema (exact keys and types):
-{
-  "summary": "string (one short paragraph, max 150 characters)",
-  "keyTopics": ["string", ...] (top 3)
-  "sentiment": "positive|neutral|negative",
-  "priority": "high|medium|low",
-  "insights": ["string", ...] (up to 3 concise insights),
-  "patterns": ["string", ...] (up to 3 observed patterns),
-  "actionItems": ["string", ...] (up to 3 actionable items)
-}
-
-Conversation:
-${conversationText}
-
-Return a single valid JSON object that exactly matches the schema above. Be concise and keep fields short. Do not include any extra characters or text.`;
+      const prompt = `Please analyze this conversation and return ONLY a concise JSON object exactly matching the schema:\n{ "summary": "..." }\n\nConversation:\n${conversationText}\n\nRespond with valid JSON and nothing else.`;
 
       console.log('=======================================');
       console.log('Gemini summarize prompt:', prompt);
@@ -111,23 +94,7 @@ Return a single valid JSON object that exactly matches the schema above. Be conc
     }
 
     try {
-      const prompt = `You are a concise assistant. Analyze the conversation below and output exactly one valid JSON object only — no explanatory text, no markdown, no code fences.
-
-Please produce a JSON object that exactly matches this schema and types:
-{
-  "summary": "string (one short paragraph, max 150 characters)",
-  "keyTopics": ["string", ...] (top 3)
-  "sentiment": "positive|neutral|negative",
-  "priority": "high|medium|low",
-  "insights": ["string", ...] (up to 3 concise insights),
-  "patterns": ["string", ...] (up to 3 observed patterns),
-  "actionItems": ["string", ...] (up to 3 actionable items)
-}
-
-Conversation (${messageCount} messages between ${participants.join(', ')}):
-${conversationText}
-
-Return only a single valid JSON object that conforms to the schema above. Keep values short and use arrays only where specified.`;
+      const prompt = `Analyze this conversation and respond with a single valid JSON object only. Do not include any explanatory text.\n\nConversation (${messageCount} messages between ${participants.join(', ')}):\n${conversationText}\n\nReturn JSON with keys: summary (string), keyTopics (array of strings), sentiment (positive|neutral|negative), priority (high|medium|low), insights (array of strings), patterns (array of strings), actionItems (array of strings).`;
 
       const response = await this.callGeminiWithRetry(prompt, { temperature: 0.1, maxOutputTokens: 600 });
 
@@ -289,7 +256,7 @@ Return only a single valid JSON object that conforms to the schema above. Keep v
 
   // Call Gemini API (extended to accept overrides for generationConfig)
   private async callGemini(prompt: string, overrides?: { temperature?: number; maxOutputTokens?: number }): Promise<GeminiResponse> {
-    const modelEndpoint = `${this.baseUrl}/${this.config.model}:generateContent`;
+    const url = `${this.baseUrl}/${this.config.model}:generateContent?key=${this.apiKey}`;
     const genConfig = {
       temperature: typeof overrides?.temperature === 'number' ? overrides.temperature : this.config.temperature,
       maxOutputTokens: typeof overrides?.maxOutputTokens === 'number' ? overrides.maxOutputTokens : this.config.maxTokens,
@@ -297,27 +264,11 @@ Return only a single valid JSON object that conforms to the schema above. Keep v
       topK: 40
     };
 
-    // Determine auth method: API key (Google style) vs OAuth Bearer
-    const isApiKey = typeof this.apiKey === 'string' && this.apiKey.startsWith('AIza');
-    let url = modelEndpoint;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-    if (this.apiKey) {
-      if (isApiKey) {
-        // Prefer passing the key as a query param and header for compatibility
-        url += `?key=${encodeURIComponent(this.apiKey)}`;
-        headers['X-Goog-Api-Key'] = this.apiKey;
-      } else {
-        headers['Authorization'] = `Bearer ${this.apiKey}`;
-      }
-    }
-
-    // Debug info (do not log raw keys)
-    try { console.log('Gemini request', { url, auth: this.apiKey ? (isApiKey ? 'apiKey' : 'bearer') : 'none' }); } catch(e) {}
-
     const response = await fetch(url, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
         contents: [{
           parts: [{ text: prompt }]
@@ -437,9 +388,13 @@ Return only a single valid JSON object that conforms to the schema above. Keep v
   }
 }
 
+// Exported helper: Generate embeddings using Gemini embedding endpoint
 export async function callGeminiEmbedding(text: string, apiKey: string, url?: string): Promise<number[]> {
+  // Default endpoint (can be overridden with GEMINI_EMBEDDINGS_URL)
   let endpoint = url || 'https://generativelanguage.googleapis.com/v1beta2/models/textembedding-gecko-001:embed';
 
+  // Google API keys (like those starting with "AIza") must be passed as ?key=API_KEY
+  // OAuth access tokens should be passed as Bearer tokens in Authorization header.
   const isApiKey = typeof apiKey === 'string' && apiKey.startsWith('AIza');
 
   if (isApiKey) {

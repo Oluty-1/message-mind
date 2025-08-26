@@ -128,29 +128,16 @@ export class MessageMindAI {
       try {
         const conversationText = this.formatMessagesForAI(roomMessages);
 
-        if (this.useApiRoute && (this.hfFailed || !this.hfApiKey) && !this.gpt) {
-          const summary = await this.generateFallbackSummary(roomMessages);
-          const sentiment = await this.generateSentimentAnalysis(conversationText);
-          const topics = await this.generateFallbackTopics(roomMessages);
-          const insights = this.generateContextualInsights(conversationText, roomMessages);
-          const patterns = this.analyzeConversationPatterns(roomMessages);
-          const actionItems = this.extractActionItemsHeuristic(conversationText);
-          const priority = this.calculatePriorityHeuristic(conversationText, roomMessages);
-
-          summaries.push({ date, roomName, messageCount: roomMessages.length, participants: this.extractParticipants(roomMessages), summary, keyTopics: topics, sentiment, priority, insights, patterns, actionItems });
-          continue;
-        }
-
-        // Try Gemini first (highest priority)
+        // Use Gemini only for conversation analysis. If Gemini is not available or fails, push a concise error summary.
         if (this.gemini && this.gemini.isAvailable()) {
           try {
-            console.log('🤖 Using Gemini AI for conversation analysis...');
+            console.log('🤖 Using Gemini AI for conversation analysis (Gemini-only mode)...');
             const geminiAnalysis = await this.gemini.generateDailySummary(
               conversationText,
               this.extractParticipants(roomMessages),
               roomMessages.length
             );
-            
+
             summaries.push({
               date,
               roomName,
@@ -159,33 +146,40 @@ export class MessageMindAI {
               ...geminiAnalysis
             });
             continue;
-          } catch (geminiError) {
-            console.warn('Gemini analysis failed, falling back to other methods:', geminiError);
+          } catch (geminiError: any) {
+            console.warn('Gemini analysis failed:', geminiError?.message || geminiError);
+            summaries.push({
+              date,
+              roomName,
+              messageCount: roomMessages.length,
+              participants: this.extractParticipants(roomMessages),
+              summary: `Gemini analysis failed: ${geminiError?.message || String(geminiError)}`,
+              keyTopics: [],
+              sentiment: 'neutral',
+              priority: 'medium',
+              insights: [],
+              patterns: [],
+              actionItems: []
+            });
+            continue;
           }
+        } else {
+          // Gemini not configured — record an error summary so caller/UI can surface it.
+          summaries.push({
+            date,
+            roomName,
+            messageCount: roomMessages.length,
+            participants: this.extractParticipants(roomMessages),
+            summary: 'Gemini not configured on server. Add GEMINI_API_KEY to enable summaries.',
+            keyTopics: [],
+            sentiment: 'neutral',
+            priority: 'medium',
+            insights: [],
+            patterns: [],
+            actionItems: []
+          });
+          continue;
         }
-
-        let summary: string;
-        try { summary = await this.generateSummary(roomMessages as ProcessedMessage[]); } catch (err) { console.error('Summary generation failed, falling back to heuristic:', err); summary = await this.generateFallbackSummary(roomMessages); }
-
-        let sentiment: 'positive' | 'neutral' | 'negative';
-        try { sentiment = await this.analyzeSentiment(conversationText); } catch (err) { console.error('Sentiment analysis failed, using heuristic:', err); sentiment = this.generateSentimentAnalysis(conversationText); }
-
-        let topics: string[];
-        try { topics = await this.extractTopics(conversationText); } catch (err) { console.error('Topic extraction failed, using heuristic:', err); topics = await this.generateFallbackTopics(roomMessages); }
-
-        let insights: string[];
-        try { insights = await this.generateInsights(conversationText, roomMessages); } catch (err) { console.error('Insights generation failed, using heuristic:', err); insights = this.generateContextualInsights(conversationText, roomMessages); }
-
-        let patterns: string[];
-        try { patterns = await this.identifyPatterns(conversationText, roomMessages); } catch (err) { console.error('Pattern identification failed, using heuristic:', err); patterns = this.analyzeConversationPatterns(roomMessages); }
-
-        let actionItems: string[];
-        try { actionItems = await this.extractActionItems(conversationText); } catch (err) { console.error('Action item extraction failed, using heuristic:', err); actionItems = this.extractActionItemsHeuristic(conversationText); }
-
-        let priority: 'high' | 'medium' | 'low';
-        try { priority = await this.calculatePriorityGenerative(conversationText, roomMessages); } catch (err) { console.error('Priority calculation failed, using heuristic:', err); priority = this.calculatePriorityHeuristic(conversationText, roomMessages); }
-
-        summaries.push({ date, roomName, messageCount: roomMessages.length, participants: this.extractParticipants(roomMessages), summary, keyTopics: topics, sentiment, priority, insights, patterns, actionItems });
       } catch (error) {
         console.error(`Failed to process room ${roomName}:`, error);
         summaries.push({ date, roomName, messageCount: roomMessages.length, participants: this.extractParticipants(roomMessages), summary: await this.generateFallbackSummary(roomMessages), keyTopics: await this.generateFallbackTopics(roomMessages), sentiment: 'neutral', priority: 'medium', insights: [], patterns: [], actionItems: [] });
@@ -625,16 +619,29 @@ Topics:
   private generateNaturalLanguageSummary(conversationText: string): string {
     const lines = conversationText.split('\n').filter(line => line.includes(':'));
     const messageCount = lines.length;
-    const participants = new Set(lines.map(line => line.split(':')[0])).size;
-    
-    if (messageCount < 3) return "Brief conversation exchange.";
+    const participants = new Set(lines.map(line => line.split(':')[0].trim()).filter(Boolean)).size;
+    console.log("Participants:", participants, "Messages:", messageCount);
+    if (messageCount < 3) return participants === 1 ? "Brief message exchange from 1 participant." : "Brief conversation exchange.";
     
     const allText = lines.map(line => line.split(':').slice(1).join(':')).join(' ').toLowerCase();
     
     const contentAnalysis = this.analyzeContentNaturally(allText);
-    const interactionStyle = this.analyzeInteractionStyle(lines);
+    let interactionStyle = this.analyzeInteractionStyle(lines);
+
+    // Make wording more natural when there's only one participant
+    if (participants === 1) {
+      // Prefer 'Monologue' for short back-and-forth from a single sender
+      if (interactionStyle === 'Quick exchange' || interactionStyle === 'Q&A session') {
+        interactionStyle = 'Monologue';
+      } else if (interactionStyle === 'Conversation') {
+        interactionStyle = 'Messages';
+      }
+    }
     
-    let summary = `${interactionStyle} between ${participants} participant${participants > 1 ? 's' : ''} `;
+    // Use clearer participant phraseing
+    const participantPhrase = participants === 1 ? `by ${participants} participant` : `between ${participants} participant${participants > 1 ? 's' : ''}`;
+    
+    let summary = `${interactionStyle} ${participantPhrase} `;
     
     if (contentAnalysis.primaryTopic) {
       summary += `focusing on ${contentAnalysis.primaryTopic}`;
